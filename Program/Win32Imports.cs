@@ -227,7 +227,7 @@ namespace Program {
             public uint Ebp;
             public uint Eip;
             public uint SegCs;
-            public uint EFlags;
+            public EflagsEnum EFlags;
             public uint Esp;
             public uint SegSs;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 512)]
@@ -295,7 +295,7 @@ namespace Program {
             public ushort SegFs;
             public ushort SegGs;
             public ushort SegSs;
-            public uint EFlags;
+            public EflagsEnum EFlags;
 
             // Debug registers
             public ulong Dr0;
@@ -459,5 +459,53 @@ namespace Program {
 
 
 
+    }
+
+    [Flags]
+    public enum EflagsEnum : uint {
+        /*
+http://www.eecg.toronto.edu/~amza/www.mindsec.com/files/x86regs.html
+Bit   Label    Desciption
+---------------------------
+0      CF      Carry flag
+2      PF      Parity flag
+4      AF      Auxiliary carry flag
+6      ZF      Zero flag
+7      SF      Sign flag
+8      TF      Trap flag
+9      IF      Interrupt enable flag
+10     DF      Direction flag
+11     OF      Overflow flag
+12-13  IOPL    I/O Priviledge level
+14     NT      Nested task flag
+16     RF      Resume flag
+17     VM      Virtual 8086 mode flag
+18     AC      Alignment check flag (486+)
+19     VIF     Virtual interrupt flag
+20     VIP     Virtual interrupt pending flag
+21     ID      ID flag
+         */
+        Carry = 1 << 0,
+        R1 = 1 << 1,
+        Parity = 1 << 2,
+        R2 = 1 << 3,
+        AuxiliaryCarry = 1 << 4,
+        R3 = 1 << 5,
+        Zero = 1 << 6,
+        Sign = 1 << 7,
+        Trap = 1 << 8,
+        InterruptEnable = 1 << 9,
+        Direction = 1 << 10,
+        Overflow = 1 << 11,
+        IoPrivilegeLevel1 = 1 << 12,
+        IoPrivilegeLevel2 = 1 << 13,
+        NestedTask = 1 << 14,
+        R4 = 1 << 15,
+        Resume = 1 << 16,
+        Virtual8086Mode = 1 << 17,
+        AlignmentCheck = 1 << 18,
+        VirtualInterrupt = 1 << 19,
+        VirtualInterruptPending = 1 << 20,
+        Id = 1 << 21
     }
 }

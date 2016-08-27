@@ -78,6 +78,7 @@
     <Compile Include="ContextManager.cs" />
     <Compile Include="DebugProcessUtils.cs" />
     <Compile Include="ContextTracer.cs" />
+    <Compile Include="EnumExtensions.cs" />
     <Compile Include="ImportResolver.cs" />
     <Compile Include="Logger.cs" />
     <Compile Include="MemProgram.cs" />

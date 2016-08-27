@@ -28,19 +28,31 @@ namespace Program {
             bool first = true;
             MethodInfo miFormatValue = typeof(AsmUtil).GetMethod(nameof(FormatValue),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+            MethodInfo miFormatFlags = typeof(AsmUtil).GetMethod(nameof(FormatFlags),
+                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
                                                                             BindingFlags.NonPublic |
                                                                             BindingFlags.Public)) {
                 var reg = field.Name.ToUpper();
                 var titleExpr = Expression.Constant((first ? "" : " ") + reg + "=", typeof(string));
                 if (!(field.FieldType == typeof(ulong) ||
-                      field.FieldType == typeof(uint))) {
+                      field.FieldType == typeof(uint) ||
+                      field.FieldType == typeof(EflagsEnum))) {
                     continue;
                 }
-                var valueExpr = Expression.Convert(Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name), typeof(ulong));
-                var strValueExpr = Expression.Call(miFormatValue, valueExpr);
-                registers.Add(titleExpr);
-                registers.Add(strValueExpr);
+                if (reg.Equals("EFLAGS")) {
+                    var strValueExpr = 
+                        Expression.Call(
+                            miFormatFlags,
+                            Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name));
+                    registers.Add(titleExpr);
+                    registers.Add(strValueExpr);
+                } else {
+                    var valueExpr = Expression.Convert(Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name), typeof(ulong));
+                    var strValueExpr = Expression.Call(miFormatValue, valueExpr);
+                    registers.Add(titleExpr);
+                    registers.Add(strValueExpr);
+                }
                 first = false;
             }
             var arrayExpr = Expression.NewArrayInit(typeof(string), registers);
@@ -67,6 +79,8 @@ namespace Program {
 
             MethodInfo miFormatValueDiff = typeof(AsmUtil).GetMethod(nameof(FormatValueDiff),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+            MethodInfo miFormatFlags = typeof(AsmUtil).GetMethod(nameof(FormatFlagsDiff),
+                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             // Console.WriteLine($"miFVD: {miFormatValueDiff}");
 
             foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
@@ -78,28 +92,46 @@ namespace Program {
                     continue;
                 }
                 if (!(field.FieldType == typeof(ulong) ||
-                      field.FieldType == typeof(uint))) {
+                      field.FieldType == typeof(uint) ||
+                      field.FieldType == typeof(EflagsEnum))) {
                     continue;
                 }
-                Func<string, Expression> wrap = (s) => Expression.Constant(s == null ? null : new Regex(@"\W" + s + @"\W"), typeof(Regex));
-                var reg64 = wrap(reg);
-                var reg32 = wrap(Get32BitRegisterFrom64BitRegister(reg));
-                var reg16 = wrap(Get16BitRegisterFrom64BitRegister(reg));
-                var reg8U = wrap(Get8BitUpperRegisterFrom64BitRegister(reg));
-                var reg8L = wrap(Get8BitLowerRegisterFrom64BitRegister(reg));
-                
+
                 var titleExpr = Expression.Constant((first ? "" : " ") + reg, typeof(string));
-                var valueExpr = Expression.Convert(Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name), typeof(ulong));
-                var oldValueExpr = Expression.Convert(Expression.Field(oldContextParam, typeof(Win32Imports.ContextX64), field.Name), typeof(ulong));
-                var strValueExpr = Expression.Call(miFormatValueDiff,
-                    titleExpr,
-                    reg64, reg32, reg16, reg8U, reg8L,
-                    valueExpr, oldValueExpr,
-                    contextParam, oldContextParam,
-                    oldInstructionParam
-                );
-                registers.Add(strValueExpr);
-                first = false;
+
+                if (reg.Equals("EFLAGS")) {
+                    var strValueExpr =
+                        Expression.Call(
+                            miFormatFlags,
+                            titleExpr,
+                            Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name),
+                            Expression.Field(oldContextParam, typeof(Win32Imports.ContextX64), field.Name));
+                    registers.Add(strValueExpr);
+                } else {
+                    Func<string, Expression> wrap =
+                        (s) => Expression.Constant(s == null ? null : new Regex(@"\W" + s + @"\W"), typeof(Regex));
+                    var reg64 = wrap(reg);
+                    var reg32 = wrap(Get32BitRegisterFrom64BitRegister(reg));
+                    var reg16 = wrap(Get16BitRegisterFrom64BitRegister(reg));
+                    var reg8U = wrap(Get8BitUpperRegisterFrom64BitRegister(reg));
+                    var reg8L = wrap(Get8BitLowerRegisterFrom64BitRegister(reg));
+
+                    var valueExpr =
+                        Expression.Convert(Expression.Field(contextParam, typeof(Win32Imports.ContextX64), field.Name),
+                            typeof(ulong));
+                    var oldValueExpr =
+                        Expression.Convert(
+                            Expression.Field(oldContextParam, typeof(Win32Imports.ContextX64), field.Name),
+                            typeof(ulong));
+                    var strValueExpr = Expression.Call(miFormatValueDiff,
+                        titleExpr,
+                        reg64, reg32, reg16, reg8U, reg8L,
+                        valueExpr, oldValueExpr,
+                        oldInstructionParam
+                        );
+                    registers.Add(strValueExpr);
+                    first = false;
+                }
             }
             var arrayExpr = Expression.NewArrayInit(typeof(string), registers);
             MethodInfo miConcat = typeof(String).GetMethod(nameof(String.Concat),
@@ -108,7 +140,7 @@ namespace Program {
                 CallingConventions.Any,
                 new[] { typeof(string[]) },
                 null);
-            var concatExpr = Expression.Call(miConcat, new[] { arrayExpr });
+            var concatExpr = Expression.Call(miConcat, new Expression[] { arrayExpr });
             var expr = Expression.Lambda<Func<Win32Imports.ContextX64, Win32Imports.ContextX64, diStorm.DecodedInst, string>>
                 (concatExpr, contextParam, oldContextParam, oldInstructionParam);
             // Console.WriteLine($"expr: {expr}");
@@ -195,7 +227,6 @@ namespace Program {
             string regTitle,
             Regex reg64, Regex reg32, Regex reg16, Regex reg8U, Regex reg8L,
             ulong value, ulong oldValue,
-            Win32Imports.ContextX64 context, Win32Imports.ContextX64 oldContext,
             diStorm.DecodedInst oldInstruction) {
                 // if value changed, log both values, otherwise don't log it.
                 if (oldValue != value) {
@@ -212,6 +243,11 @@ namespace Program {
                     return $" {regTitle}={FormatValue(value)}";
                 }
                 return "";
+        }
+        private static string FormatFlagsDiff(string regTitle, EflagsEnum flags, EflagsEnum oldFlags) {
+            return flags != oldFlags ? 
+                regTitle + "=" + string.Join("|", oldFlags.GetIndividualFlags()) + "->" + string.Join("|", flags.GetIndividualFlags()) :
+                "";
         }
 
         public static diStorm.DecodedInst Disassemble(Process process, ulong address) {
@@ -231,6 +267,11 @@ namespace Program {
             return dr.Instructions;
         }
 
+        private static string FormatFlags(EflagsEnum flags) {
+            //return $"{Convert.ToString((uint) flags, 2)}:" + string.Join("|", flags.GetIndividualFlags());
+            return string.Join("|", flags.GetIndividualFlags());
+        }
+
         private static string FormatValue(ulong value) {
             if (value > 0xFFFF) {
                 return $"0x{value:X}";
@@ -246,7 +287,7 @@ namespace Program {
         }
 
         [Obsolete]
-        private static string FormatContextReflection(Win32Imports.ContextX64 context) {
+        public static string FormatContextReflection(Win32Imports.ContextX64 context) {
             var registers = "";
             foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
                                 BindingFlags.NonPublic |
@@ -269,7 +310,7 @@ namespace Program {
         }
         
         [Obsolete]
-        private static string FormatContextDiffReflection(Win32Imports.ContextX64 context, Win32Imports.ContextX64 oldContext, diStorm.DecodedInst oldInstruction) {
+        public static string FormatContextDiffReflection(Win32Imports.ContextX64 context, Win32Imports.ContextX64 oldContext, diStorm.DecodedInst oldInstruction) {
             var registers = "";
 
             // log only changed registers and operands
