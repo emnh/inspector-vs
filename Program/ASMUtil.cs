@@ -346,18 +346,21 @@ namespace Program {
             throw new DecodeException("failed to decode");
         }
 
-        public static MaybeInstruction[] TryDisassembleMany(Process process, ulong address, int instructions = MaxInstructions) {
-            var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes * instructions);
-            return TryDisassembleMany(mem, instructions);
+        public static Instruction[] DisassembleMany(Process process, ulong address, ulong targetOffset) {
+            var mem = DebugProcessUtils.ReadBytes(process, address, (int) (targetOffset - address));
+            return DisassembleMany(mem, targetOffset);
         }
 
-        public static MaybeInstruction[] TryDisassembleMany(byte[] mem, int instructions) {
-            var retInstructions = new List<MaybeInstruction>();
+        public static Instruction[] DisassembleMany(byte[] mem, ulong targetOffset) {
+            var retInstructions = new List<Instruction>();
             ulong offset = 0;
-            using (new DebugAssertControl((x) => { retInstructions.Add(new MaybeInstruction() {
+            using (new DebugAssertControl((x) => {
                 // ReSharper disable once AccessToModifiedClosure
-                Offset = offset
-            }); })) {
+                if (offset <= targetOffset) {
+                    throw new DecodeException($"could not reach {nameof(targetOffset)}: Debug.Assert in udis decode: {x}");
+                }
+                
+            })) {
                 var mode = ArchitectureMode.x86_64;
                 Disassembler.Translator.IncludeAddress = false;
                 Disassembler.Translator.IncludeBinary = false;
@@ -365,24 +368,17 @@ namespace Program {
                 var disasm = new Disassembler(mem, mode, 0, true);
                 // Disassemble each instruction and output to console
                 try {
-                    int i = 0;
                     foreach (var instruction in disasm.Disassemble()) {
-                        if (i >= instructions) {
+                        if (offset + (ulong) instruction.Length <= targetOffset) {
+                            retInstructions.Add(instruction);
+                        } else {
                             break;
                         }
-                        retInstructions.Add(new MaybeInstruction(){
-                            Offset = offset,
-                            Present = true,
-                            Instruction = instruction
-                        });
                         offset += (ulong) instruction.Length;
                     }
                 }
                 catch (IndexOutOfRangeException) {
-                    // ignore
-                    retInstructions.Add(new MaybeInstruction() {
-                        Offset = offset
-                    });
+                    throw new DecodeException($"could not reach {nameof(targetOffset)}");
                 }
             }
             return retInstructions.ToArray();

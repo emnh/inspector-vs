@@ -35,7 +35,8 @@ namespace Program {
             var originalCode = DebugProcessUtils.ReadBytes(process, patchSite, patchAreaSize);
 
             // minus patchSiteSize because we need to restore patchSiteSize bytes
-            var decodedInstructions = AsmUtil.TryDisassembleMany(originalCode.Take(patchAreaSize - patchSiteSize).ToArray(), patchAreaSize);
+            // var decodedInstructions = AsmUtil.DisassembleMany(originalCode.Take(patchAreaSize - patchSiteSize).ToArray(), patchAreaSize);
+            var decodedInstructions = AsmUtil.DisassembleMany(originalCode, patchAreaSize - patchSiteSize);
 
             var bogusAddress = Win32Imports.VirtualAllocEx(
                 processHandle,
@@ -248,15 +249,10 @@ namespace Program {
             // restore function
             uint offset = 0;
             var lastReturn = 0;
-            foreach (var maybeInstruction in decodedInstructions) {
-                if (!maybeInstruction.Present) {
-                    break;
-                }
-                var instruction = maybeInstruction.Instruction;
-                
+            foreach (var instruction in decodedInstructions) {
                 var startOfRestore = ptr;
 
-                Console.WriteLine($"instruction {instruction.Mnemonic}, size: {instruction.Length}");
+                //Console.WriteLine($"instruction {instruction.Mnemonic}, size: {instruction.Length}");
                 // reserve space for call site restore 1
                 // mov rax, constant
                 codeSiteCode[ptr++] = 0x48;
@@ -332,7 +328,7 @@ namespace Program {
                 codeSiteCode[ptr++] = 0xC3;
                 var endOfRestore = ptr;
 
-                Console.WriteLine($"mul: {endOfRestore - startOfRestore}");
+                //Console.WriteLine($"mul: {endOfRestore - startOfRestore}");
                 codeSiteCode[multiplyImmediate] = (byte) (endOfRestore - startOfRestore);
 
                 offset += (uint) instruction.Length;
@@ -360,93 +356,5 @@ namespace Program {
             public Instruction OldInstruction;
         }
 
-        public static void TraceIt(Process process, ulong patchSite, Logger logger, bool debug = true) {
-            if (debug) {
-                if (!Win32Imports.DebugActiveProcess(process.Id)) {
-                    throw new Win32Exception();
-                }
-
-                if (!Win32Imports.DebugSetProcessKillOnExit(false)) {
-                    throw new Win32Exception();
-                }
-            }
-            foreach (ProcessThread thread in process.Threads) {
-                var threadId = thread.Id;
-                var context = new Win32Imports.ContextX64();
-                ContextManager.getRip((uint) threadId, ref context, ContextManager.GetRipAction.ActionSuspend);
-            }
-
-            InstallTracer(process, patchSite, logger);
-
-            var mainThread = 0;
-
-            foreach (ProcessThread thread in process.Threads) {
-                var threadId = thread.Id;
-                var context = new Win32Imports.ContextX64();
-                var breakAddress = ContextManager.getRip((uint)threadId, ref context, ContextManager.GetRipAction.ActionGetContext);
-                var diff = new BigInteger(breakAddress) - new BigInteger(patchSite);
-                diff = diff < 0 ? -diff : diff;
-                if (diff < 1000) {
-                    mainThread = threadId;
-                    logger.WriteLine($"thread {threadId} setting Rip to patch site: {patchSite:X}");
-                    ContextManager.setRip((uint)threadId, false, patchSite);
-                    if (debug) {
-                        ContextManager.setTrace((uint)threadId, false);
-                    }
-                }
-                ContextManager.getRip((uint)threadId, ref context, ContextManager.GetRipAction.ActionResume);
-            }
-
-            /*if (!Win32Imports.DebugBreakProcess(process.Id)) {
-                throw new Win32Exception();
-            }*/
-
-            if (debug) {
-                Dictionary<int, OldState> oldThreadState = new Dictionary<int, OldState>();
-                try {
-                    while (true)
-                    {
-                        Win32Imports.DebugEvent evt;
-                        if (Win32Imports.WaitForDebugEvent(out evt, -1)) {
-                            Console.WriteLine($"debug event {evt.dwDebugEventCode}");
-                            var continueCode = Win32Imports.DbgContinue;
-                            if (evt.dwDebugEventCode == Win32Imports.DebugEventType.ExceptionDebugEvent && evt.dwThreadId == mainThread) {
-                                var exceptionAddress = (ulong)evt.Exception.ExceptionRecord.ExceptionAddress.ToInt64();
-                                var context = new Win32Imports.ContextX64();
-                                var breakAddress = ContextManager.getRip((uint)evt.dwThreadId, ref context, ContextManager.GetRipAction.ActionGetContext);
-                                var code = evt.Exception.ExceptionRecord.ExceptionCode;
-                                Console.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X} code {code}, 0x{breakAddress:X}");
-                                ContextManager.setTrace((uint)evt.dwThreadId);
-
-                                var instr = AsmUtil.Disassemble(process, exceptionAddress);
-                                var asm = AsmUtil.FormatInstruction(instr);
-                                var strContext = oldThreadState.ContainsKey(evt.dwThreadId) ? 
-                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].OldContext, oldThreadState[evt.dwThreadId].OldInstruction) : 
-                                    AsmUtil.FormatContext(context);
-                                logger.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X}, 0x{breakAddress:X} code {code}: {asm}, regs-1: {strContext}");
-
-                                oldThreadState[evt.dwThreadId] = new OldState {
-                                    OldContext = context,
-                                    OldInstruction = instr
-                                };
-
-                                if (code == Win32Imports.ExceptionCodeStatus.ExceptionAccessViolation) {
-                                    continueCode = Win32Imports.DbgExceptionNotHandled;
-                                }
-                            }
-
-                            if (!Win32Imports.ContinueDebugEvent(evt.dwProcessId, evt.dwThreadId, continueCode)) {
-                                throw new Win32Exception();
-                            }
-                        }
-                    }
-                }
-                finally {
-                    if (!Win32Imports.DebugActiveProcessStop(process.Id)) {
-                        throw new Win32Exception();
-                    }
-                }
-            }
-        }
     }
 }

@@ -352,7 +352,7 @@ namespace Program {
             public Instruction Instruction;
         }
 
-        public static void TraceIt(Process process, ulong patchSite, Logger logger, bool debug = true) {
+        public static void TraceIt(Process process, ulong patchSite, Logger logger, bool debug, Action<Process, ulong, Logger> installTracer) {
             if (debug) {
                 if (!Win32Imports.DebugActiveProcess(process.Id)) {
                     throw new Win32Exception();
@@ -368,7 +368,8 @@ namespace Program {
                 ContextManager.getRip((uint) threadId, ref context, ContextManager.GetRipAction.ActionSuspend);
             }
 
-            InstallTracer(process, patchSite, logger);
+            Console.WriteLine("installing tracer");
+            installTracer(process, patchSite, logger);
 
             var mainThread = 0;
 

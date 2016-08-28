@@ -142,7 +142,7 @@ namespace Program {
             }
         }
 
-        public static void MemMain(Process process, ImportResolver ir) {
+        public static void MemMain(Process process, ImportResolver ir, bool setPageExecuteReadWrite = false) {
             // getting minimum & maximum address
 
             SystemInfo sysInfo;
@@ -186,12 +186,14 @@ namespace Program {
                     throw new Win32Exception();
                 }
 
-                AllocationProtectEnum oldProtection;
-                if (
-                    !VirtualProtectEx(processHandle, memBasicInfo.BaseAddress,
-                        new UIntPtr((ulong) memBasicInfo.RegionSize),
-                        AllocationProtectEnum.PageExecuteReadwrite, out oldProtection)) {
-                    //throw new Win32Exception();
+                if (setPageExecuteReadWrite) {
+                    AllocationProtectEnum oldProtection;
+                    if (
+                        !VirtualProtectEx(processHandle, memBasicInfo.BaseAddress,
+                            new UIntPtr((ulong)memBasicInfo.RegionSize),
+                            AllocationProtectEnum.PageExecuteReadwrite, out oldProtection)) {
+                        //throw new Win32Exception();
+                    }
                 }
 
                 var regionStartModule = ir.LookupAddress((ulong) memBasicInfo.BaseAddress);
@@ -244,8 +246,6 @@ namespace Program {
             Console.WriteLine($"end scanning. total MB: {totalBytesRead/1024/1024}");
 
             sw.Close();
-
-            Console.ReadLine();
         }
     }
 }
