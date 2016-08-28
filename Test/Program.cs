@@ -3,38 +3,56 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Program;
 
-namespace Test {    
+namespace Test {
 
     class MyProgram {
 
         [DllImport("ContextLib.dll")]
         public static extern void testMain();
 
+        public static void TestSharpDisasm() {
+            
+        }
+
         static void Main() {
 
             Process process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
 
-            var context = new Win32Imports.ContextX64();
-            ContextManager.getRip((uint) process.Threads[0].Id, ref context, ContextManager.GetRipAction.ActionGetContext);
-            var context2 = new Win32Imports.ContextX64();
-            ContextManager.getRip((uint)process.Threads[0].Id, ref context2, ContextManager.GetRipAction.ActionGetContext);
-            var instr = AsmUtil.Disassemble(process, context2.Rip);
-            Console.WriteLine($"0x{context2.Rip:X}: {AsmUtil.FormatInstruction(instr)} {AsmUtil.FormatContext(context)}");
-            Console.WriteLine($"0x{context2.Rip:X}: {AsmUtil.FormatInstruction(instr)} {AsmUtil.FormatContext(context2)}");
-            Console.WriteLine($"0x{context2.Rip:X}: {AsmUtil.FormatInstruction(instr)} {AsmUtil.FormatContextDiff(context2, context, instr)}");
+            TestFormatContext(process);
+
+            
+            ImportResolver ir = new ImportResolver(process);
+            Console.WriteLine($"baseAddress: {(ulong) process.MainModule.BaseAddress:X}");
+            var address = ir.ResolveRelativeAddress(Specifics.StartAddress);
+            Console.WriteLine($"address: {address:X}");
+            
+            //var instr = dr2.Instructions.First();
+            //instr.Operands
 
             // HexStartAddr();
             // DumpModuleSizes(process);
 
             // var ir = new ImportResolver(process);
             // ir.DumpDebug();
-            
+
             // SizeOfDebugStuff();
 
             // testMain();
 
             Console.WriteLine("done");
             Console.ReadKey();
+        }
+
+        private static void TestFormatContext(Process process) {
+            var context = new Win32Imports.ContextX64();
+            ContextManager.getRip((uint) process.Threads[0].Id, ref context, ContextManager.GetRipAction.ActionGetContext);
+            var context2 = new Win32Imports.ContextX64();
+            ContextManager.getRip((uint) process.Threads[0].Id, ref context2, ContextManager.GetRipAction.ActionGetContext);
+            var instr = AsmUtil.DisassembleDecode(process, context2.Rip);
+            var asm = instr.ToString();
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context)}");
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context2)}");
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContextDiff(context2, context, instr)}");
         }
 
         private static void DumpModuleSizes(Process process) {

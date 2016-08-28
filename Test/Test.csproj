@@ -60,6 +60,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\lib\diStorm.dll</HintPath>
     </Reference>
+    <Reference Include="SharpDisasm">
+      <HintPath>..\lib\SharpDisasm.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />

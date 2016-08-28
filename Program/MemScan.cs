@@ -44,8 +44,7 @@ namespace Program {
                 // dump the main module to asm file
                 if (traceModule == null) {
                     Console.WriteLine("could not locate trace module, no dump generated");
-                }
-                else {
+                } else {
                     DumpAssembly(traceMemory);
                 }
 
@@ -102,27 +101,35 @@ namespace Program {
             using (var sw2 = new StreamWriter(Specifics.AsmDumpFileName)) {
                 using (var fs = new FileStream(Specifics.WriteAsmSizesDumpFileName, FileMode.Create)) {
                     using (var bw = new BinaryWriter(fs)) {
-                        for (ulong i = 0; i < (ulong) traceMemory.Length; i++) {
-                            Array.Copy(traceMemory, (int) i, subRange, 0,
-                                (int) Math.Min(AsmUtil.MaxInstructionBytes, (ulong) traceMemory.Length - i));
-                            var ci = new CodeInfo((long) i, subRange, DecodeType.Decode64Bits, 0);
-                            var dr = new DecodedResult(1);
-                            diStorm3.Decode(ci, dr);
-                            if (dr.Instructions.Length == 0) {
-                                sw2.WriteLine($"{i:X}: N/A");
-                                continue;
-                            }
-                            var decodedInstruction = dr.Instructions.First();
-                            bw.Write((byte) decodedInstruction.Size);
-                            //sw2.WriteLine($"{i:X}->{i + decodedInstruction.Size:X}: {asm}");
+                        using (DebugAssertControl dbg = new DebugAssertControl((x) => sw2.WriteLine("SharpDisasm failed to decode"))) {
+                            for (ulong i = 0; i < (ulong) traceMemory.Length; i++) {
+                                Array.Copy(traceMemory, (int) i, subRange, 0,
+                                    (int) Math.Min(AsmUtil.MaxInstructionBytes, (ulong) traceMemory.Length - i));
+                                var progress = new BigInteger(i)*100/traceMemory.Length;
+                                //Console.WriteLine($"progress: {progress}");
 
-                            var progress = new BigInteger(i)*100/traceMemory.Length;
-                            //Console.WriteLine($"progress: {progress}");
+                                if (progress != oldProgress) {
+                                    Console.WriteLine($"decoding asm, progress: {progress}");
+                                }
+                                oldProgress = progress;
 
-                            if (progress != oldProgress) {
-                                Console.WriteLine($"decoding asm, progress: {progress}");
+                                SharpDisasm.ArchitectureMode mode = SharpDisasm.ArchitectureMode.x86_64;
+                                SharpDisasm.Disassembler.Translator.IncludeAddress = false;
+                                SharpDisasm.Disassembler.Translator.IncludeBinary = false;
+
+                                var disasm = new SharpDisasm.Disassembler(subRange, mode, 0, true);
+                                try {
+                                    foreach (var instruction in disasm.Disassemble()) {
+                                        var ops = string.Join(",", instruction.Operands.Select(x => x.Index));
+                                        var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
+                                        sw2.WriteLine($"SharpDisasm: {instruction} OPS: {ops}, OPS2: {ops2}");
+                                        break;
+                                    }
+                                } catch (IndexOutOfRangeException) {
+                                    // ignore
+                                    sw2.WriteLine("SharpDisasm: failed");
+                                }
                             }
-                            oldProgress = progress;
                         }
                     }
                 }

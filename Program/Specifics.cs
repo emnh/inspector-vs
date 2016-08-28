@@ -15,8 +15,8 @@ namespace Program {
         public static ImportResolver.RelativeAddress StartAddress =
             new ImportResolver.RelativeAddress()
             {
-                ModuleName = TraceModuleName + ":" + "main",                
-                AddressOffset = 0x55
+                ModuleName = TraceModuleName,
+                AddressOffset = (0x7FF6222D17C0 - 0x7FF6222C0000)
             };
 #else
         // public const ulong startAddress = 0x7FF762EE437C;

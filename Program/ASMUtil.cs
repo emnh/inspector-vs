@@ -6,8 +6,24 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using diStorm;
+using SharpDisasm;
+using SharpDisasm.Udis86;
+
+// TODO: rename file from ASMUtil to AsmUtil
 
 namespace Program {
+
+    public class MaybeUdType {
+        public bool Present;
+        public ud_type Type;
+    }
+
+    public class DecodeException : Exception {
+        public DecodeException(string message) : base(message) {
+        }
+    }
+
     public class AsmUtil {
         public const int MaxInstructionBytes = 15;
         public const int MaxInstructions = 1;
@@ -15,7 +31,7 @@ namespace Program {
         public const byte Int3 = 0xCC;
         public static byte[] InfiniteLoop = new byte[] { 0xEB, 0xFE };
         public static Func<Win32Imports.ContextX64, string> FormatContext;
-        public static Func<Win32Imports.ContextX64, Win32Imports.ContextX64, diStorm.DecodedInst, string> FormatContextDiff;
+        public static Func<Win32Imports.ContextX64, Win32Imports.ContextX64, Instruction, string> FormatContextDiff;
 
         static AsmUtil() {
             CreateFormatContext();
@@ -74,7 +90,7 @@ namespace Program {
             var registers = new List<Expression>();
             ParameterExpression contextParam = Expression.Parameter(typeof(Win32Imports.ContextX64), "context");
             ParameterExpression oldContextParam = Expression.Parameter(typeof(Win32Imports.ContextX64), "oldContext");
-            ParameterExpression oldInstructionParam = Expression.Parameter(typeof(diStorm.DecodedInst), "oldInstruction");
+            ParameterExpression oldInstructionParam = Expression.Parameter(typeof(Instruction), "oldInstruction");
             bool first = true;
 
             MethodInfo miFormatValueDiff = typeof(AsmUtil).GetMethod(nameof(FormatValueDiff),
@@ -82,6 +98,13 @@ namespace Program {
             MethodInfo miFormatFlags = typeof(AsmUtil).GetMethod(nameof(FormatFlagsDiff),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             // Console.WriteLine($"miFVD: {miFormatValueDiff}");
+
+            /*
+            Dictionary<string, ud_type> regStringToUdType = new Dictionary<string, ud_type>();
+            foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
+                                                                            BindingFlags.NonPublic |
+                                                                            BindingFlags.Public)) {
+            }*/
 
             foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
                                                                             BindingFlags.NonPublic |
@@ -108,8 +131,31 @@ namespace Program {
                             Expression.Field(oldContextParam, typeof(Win32Imports.ContextX64), field.Name));
                     registers.Add(strValueExpr);
                 } else {
-                    Func<string, Expression> wrap =
-                        (s) => Expression.Constant(s == null ? null : new Regex(@"\W" + s + @"\W"), typeof(Regex));
+                    Func<string, MaybeUdType> lookup = (s) => {
+                        if (s == null || 
+                            s.Contains("HOME") ||
+                            s.Contains("CONTEXT") ||
+                            s.Equals("MXCSR") ||
+                            s.Equals("VECTORCONTROL") ||
+                            s.Equals("DEBUGCONTROL") ||
+                            s.Equals("LASTBRANCHTORIP") ||
+                            s.Equals("LASTBRANCHFROMRIP") ||
+                            s.Equals("LASTEXCEPTIONTORIP") ||
+                            s.Equals("LASTEXCEPTIONFROMRIP")) {
+                            return new MaybeUdType();
+                        }
+                        var udstr = "UD_R_" + s;
+                        ud_type udval;
+                        
+                        if (!Enum.TryParse(udstr, out udval)) {
+                            throw new Exception($"could not find register {s} in ud_type");
+                        }
+                        return new MaybeUdType() {
+                            Present = true,
+                            Type = udval
+                        };
+                    };
+                    Func<string, Expression> wrap = (s) => Expression.Constant(lookup(s), typeof(MaybeUdType));
                     var reg64 = wrap(reg);
                     var reg32 = wrap(Get32BitRegisterFrom64BitRegister(reg));
                     var reg16 = wrap(Get16BitRegisterFrom64BitRegister(reg));
@@ -141,7 +187,7 @@ namespace Program {
                 new[] { typeof(string[]) },
                 null);
             var concatExpr = Expression.Call(miConcat, new Expression[] { arrayExpr });
-            var expr = Expression.Lambda<Func<Win32Imports.ContextX64, Win32Imports.ContextX64, diStorm.DecodedInst, string>>
+            var expr = Expression.Lambda<Func<Win32Imports.ContextX64, Win32Imports.ContextX64, Instruction, string>>
                 (concatExpr, contextParam, oldContextParam, oldInstructionParam);
             // Console.WriteLine($"expr: {expr}");
             FormatContextDiff = expr.Compile();
@@ -225,45 +271,84 @@ namespace Program {
 
         private static string FormatValueDiff(
             string regTitle,
-            Regex reg64, Regex reg32, Regex reg16, Regex reg8U, Regex reg8L,
+            MaybeUdType reg64, MaybeUdType reg32, MaybeUdType reg16, MaybeUdType reg8U, MaybeUdType reg8L,
             ulong value, ulong oldValue,
-            diStorm.DecodedInst oldInstruction) {
-                // if value changed, log both values, otherwise don't log it.
-                if (oldValue != value) {
-                    return $" {regTitle}={FormatValue(oldValue)}->{FormatValue(value)}";
+            Instruction oldInstruction) {
+
+            // if value changed, log both values, otherwise don't log it.
+            if (oldValue != value) {
+                return $" {regTitle}={FormatValue(oldValue)}->{FormatValue(value)}";
+            }
+            // always log operand registers
+            var match = false;
+            foreach (var op in oldInstruction.Operands) {
+                if ((reg64.Present && op.Index == reg64.Type) ||
+                    (reg32.Present && op.Index == reg32.Type) ||
+                    (reg16.Present && op.Index == reg16.Type) ||
+                    (reg8U.Present && op.Index == reg8U.Type) ||
+                    (reg8L.Present && op.Index == reg8L.Type)) {
+                    match = true;
+                    break;
                 }
-                // always log operand registers
-                var ops = oldInstruction.Operands;
-                if ((reg64 != null && reg64.Matches(ops).Count > 0) ||
-                    (reg32 != null && reg32.Matches(ops).Count > 0) ||
-                    (reg16 != null && reg16.Matches(ops).Count > 0) ||
-                    (reg8U != null && reg8U.Matches(ops).Count > 0) ||
-                    (reg8L != null && reg8L.Matches(ops).Count > 0)
-                ) {
-                    return $" {regTitle}={FormatValue(value)}";
+                if ((reg64.Present && op.Base == reg64.Type) ||
+                    (reg32.Present && op.Base == reg32.Type) ||
+                    (reg16.Present && op.Base == reg16.Type) ||
+                    (reg8U.Present && op.Base == reg8U.Type) ||
+                    (reg8L.Present && op.Base == reg8L.Type)) {
+                    match = true;
+                    break;
                 }
-                return "";
+            }
+            if (match) {
+                return $" {regTitle}={FormatValue(value)}";
+            }
+            return "";
         }
         private static string FormatFlagsDiff(string regTitle, EflagsEnum flags, EflagsEnum oldFlags) {
-            return flags != oldFlags ? 
+            return flags != oldFlags ?
                 regTitle + "=" + string.Join("|", oldFlags.GetIndividualFlags()) + "->" + string.Join("|", flags.GetIndividualFlags()) :
                 "";
         }
 
-        public static diStorm.DecodedInst Disassemble(Process process, ulong address) {
+        [Obsolete]
+        public static DecodedInst Disassemble(Process process, ulong address) {
             var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes);
-            var ci = new diStorm.CodeInfo(0, mem, diStorm.DecodeType.Decode64Bits, 0);
-            var dr = new diStorm.DecodedResult(MaxInstructions);
-            diStorm.diStorm3.Decode(ci, dr);
+            var ci = new CodeInfo(0, mem, DecodeType.Decode64Bits, 0);
+            var dr = new DecodedResult(MaxInstructions);
+            diStorm3.Decode(ci, dr);
             var decodedInstruction = dr.Instructions.First();
             return decodedInstruction;
         }
 
-        public static diStorm.DecodedInst[] DisassembleMany(Process process, ulong address, int instructions = MaxInstructions) {
+        public static Instruction DisassembleDecode(Process process, ulong address) {
+            var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes);
+            using (
+                DebugAssertControl dbg = new DebugAssertControl((x) => {
+                    throw new DecodeException("failed to decode");
+                })) {
+                SharpDisasm.ArchitectureMode mode = SharpDisasm.ArchitectureMode.x86_64;
+                SharpDisasm.Disassembler.Translator.IncludeAddress = false;
+                SharpDisasm.Disassembler.Translator.IncludeBinary = false;
+
+                var disasm = new SharpDisasm.Disassembler(mem, mode, 0, true);
+                // Disassemble each instruction and output to console
+                try {
+                    foreach (var instruction in disasm.Disassemble()) {
+                        return instruction;
+                    }
+                } catch (IndexOutOfRangeException) {
+                    // ignore
+                    throw new DecodeException("failed to decode");
+                }
+            }
+            throw new DecodeException("failed to decode");
+        }
+
+        public static DecodedInst[] DisassembleMany(Process process, ulong address, int instructions = MaxInstructions) {
             var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes * instructions);
-            var ci = new diStorm.CodeInfo(0, mem, diStorm.DecodeType.Decode64Bits, 0);
-            var dr = new diStorm.DecodedResult(instructions);
-            diStorm.diStorm3.Decode(ci, dr);
+            var ci = new CodeInfo(0, mem, DecodeType.Decode64Bits, 0);
+            var dr = new DecodedResult(instructions);
+            diStorm3.Decode(ci, dr);
             return dr.Instructions;
         }
 
@@ -281,8 +366,14 @@ namespace Program {
             }
         }
 
-        public static string FormatInstruction(diStorm.DecodedInst decodedInstruction) {
+        public static string FormatInstruction(DecodedInst decodedInstruction) {
             var asm = $"{decodedInstruction.Mnemonic} {decodedInstruction.Operands}";
+            return asm;
+        }
+
+        public static string FormatInstruction(CodeInfo ci, DecomposedInst decodedInstruction) {
+            var x = diStorm3.Format(ci, decodedInstruction);
+            var asm = $"{x.Mnemonic} {x.Operands}";
             return asm;
         }
 
@@ -310,7 +401,7 @@ namespace Program {
         }
         
         [Obsolete]
-        public static string FormatContextDiffReflection(Win32Imports.ContextX64 context, Win32Imports.ContextX64 oldContext, diStorm.DecodedInst oldInstruction) {
+        public static string FormatContextDiffReflection(Win32Imports.ContextX64 context, Win32Imports.ContextX64 oldContext, DecodedInst oldInstruction) {
             var registers = "";
 
             // log only changed registers and operands

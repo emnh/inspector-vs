@@ -61,6 +61,9 @@
     <Reference Include="diStorm">
       <HintPath>..\lib\diStorm.dll</HintPath>
     </Reference>
+    <Reference Include="SharpDisasm">
+      <HintPath>..\lib\SharpDisasm.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
@@ -76,8 +79,10 @@
   <ItemGroup>
     <Compile Include="ASMUtil.cs" />
     <Compile Include="ContextManager.cs" />
+    <Compile Include="DebugAssertControl.cs" />
     <Compile Include="DebugProcessUtils.cs" />
     <Compile Include="ContextTracer.cs" />
+    <Compile Include="diStormExt.cs" />
     <Compile Include="EnumExtensions.cs" />
     <Compile Include="ImportResolver.cs" />
     <Compile Include="Logger.cs" />

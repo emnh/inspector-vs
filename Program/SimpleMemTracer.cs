@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using diStorm;
+using SharpDisasm;
 
 namespace Program {
     public class SimpleMemTracer {
@@ -347,8 +349,9 @@ namespace Program {
         }
 
         public class OldState {
-            public Win32Imports.ContextX64 OldContext;
-            public diStorm.DecodedInst OldInstruction;
+            public Win32Imports.ContextX64 Context;
+            public diStorm.DecodedInst Instruction;
+            public Instruction InstructionDecomposed;
         }
 
         public static void TraceIt(Process process, ulong patchSite, Logger logger, bool debug = true) {
@@ -410,15 +413,17 @@ namespace Program {
                                 ContextManager.setTrace((uint)evt.dwThreadId);
 
                                 var instr = AsmUtil.Disassemble(process, exceptionAddress);
+                                var instr2 = AsmUtil.DisassembleDecode(process, exceptionAddress);
                                 var asm = AsmUtil.FormatInstruction(instr);
                                 var strContext = oldThreadState.ContainsKey(evt.dwThreadId) ? 
-                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].OldContext, oldThreadState[evt.dwThreadId].OldInstruction) : 
+                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].Context, oldThreadState[evt.dwThreadId].InstructionDecomposed) : 
                                     AsmUtil.FormatContext(context);
                                 logger.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X}, 0x{breakAddress:X} code {code}: {asm}, regs-1: {strContext}");
 
                                 oldThreadState[evt.dwThreadId] = new OldState {
-                                    OldContext = context,
-                                    OldInstruction = instr
+                                    Context = context,
+                                    Instruction = instr,
+                                    InstructionDecomposed = instr2
                                 };
 
                                 if (code == Win32Imports.ExceptionCodeStatus.ExceptionAccessViolation) {

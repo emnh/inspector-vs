@@ -7,6 +7,8 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Numerics;
+using diStorm;
+using SharpDisasm;
 
 namespace Program {
 
@@ -19,6 +21,7 @@ namespace Program {
             public Dictionary<ulong, ulong> HitCounts = new Dictionary<ulong, ulong>();
             public int StackDepth;
             public ulong LastCallAddressInTraceModule;
+            public Instruction SdInstruction;
         }
 
         public class TraceReturn {
@@ -55,7 +58,9 @@ namespace Program {
             var mem = DebugProcessUtils.ReadBytes(process, breakAddress, AsmUtil.MaxInstructionBytes);
             var distance = (long)(breakAddress - cm.LastBreakAddress);
             
+            // TODO: redundant instruction decoding
             var decodedInstruction = AsmUtil.Disassemble(process, breakAddress);
+            var decomposedInstruction = AsmUtil.DisassembleDecode(process, breakAddress);
             var hex = DebugProcessUtils.BytesToHex(mem.Take((int) decodedInstruction.Size).ToArray());
 
             var moduleAddressTuple = _importResolver.LookupAddress(breakAddress);
@@ -189,7 +194,7 @@ namespace Program {
             }
 
             var registers = _oldState.ContainsKey(threadId) ? 
-                AsmUtil.FormatContextDiff(context, _oldState[threadId].Context, _oldState[threadId].Instruction) : 
+                AsmUtil.FormatContextDiff(context, _oldState[threadId].Context, _oldState[threadId].SdInstruction) : 
                 AsmUtil.FormatContext(context);
             //logFile.WriteLine(registers);
             var previous = "";
@@ -254,6 +259,7 @@ namespace Program {
             _oldState[threadId] = new State {
                 Context = context,
                 Instruction = decodedInstruction,
+                SdInstruction = decomposedInstruction,
                 Line = oldLine,
                 HitCounts = hitCounts,
                 StackDepth = stackDepth,
