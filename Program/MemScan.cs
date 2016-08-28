@@ -9,25 +9,6 @@ using static Program.Win32Imports;
 
 namespace Program {
     public class MemScan {
-        [Obsolete]
-        public static void Analyze(Process process) {
-            var start = (ulong) process.MainModule.BaseAddress;
-            var processSize = (ulong) process.MainModule.ModuleMemorySize;
-            var end = start + processSize;
-
-            const ulong readSize = 4096;
-
-            ulong lastProgress = 0;
-
-            for (var bptr = start; bptr + readSize < end; bptr += readSize) {
-                DebugProcessUtils.ReadBytes(process, bptr, (int) readSize);
-                var progress = (end - bptr)*100/processSize;
-                if (progress != lastProgress) {
-                    Console.WriteLine($"reading memory, progress: {progress}%");
-                }
-                lastProgress = progress;
-            }
-        }
 
         public static void MemModuleScan(Process process, ImportResolver ir) {
             using (StreamWriter sw = new StreamWriter(Specifics.FunctionsRegionsDumpFileName),
