@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using diStorm;
 using static Program.Win32Imports;
 
 namespace Program {
@@ -101,7 +100,10 @@ namespace Program {
             using (var sw2 = new StreamWriter(Specifics.AsmDumpFileName)) {
                 using (var fs = new FileStream(Specifics.WriteAsmSizesDumpFileName, FileMode.Create)) {
                     using (var bw = new BinaryWriter(fs)) {
-                        using (DebugAssertControl dbg = new DebugAssertControl((x) => sw2.WriteLine("SharpDisasm failed to decode"))) {
+                        using (new DebugAssertControl((x) => {
+                            // ReSharper disable once AccessToDisposedClosure
+                            sw2.WriteLine("SharpDisasm failed to decode");
+                        })) {
                             for (ulong i = 0; i < (ulong) traceMemory.Length; i++) {
                                 Array.Copy(traceMemory, (int) i, subRange, 0,
                                     (int) Math.Min(AsmUtil.MaxInstructionBytes, (ulong) traceMemory.Length - i));
@@ -113,6 +115,8 @@ namespace Program {
                                 }
                                 oldProgress = progress;
 
+                                byte instructionLength = 0;
+
                                 SharpDisasm.ArchitectureMode mode = SharpDisasm.ArchitectureMode.x86_64;
                                 SharpDisasm.Disassembler.Translator.IncludeAddress = false;
                                 SharpDisasm.Disassembler.Translator.IncludeBinary = false;
@@ -120,6 +124,7 @@ namespace Program {
                                 var disasm = new SharpDisasm.Disassembler(subRange, mode, 0, true);
                                 try {
                                     foreach (var instruction in disasm.Disassemble()) {
+                                        instructionLength = (byte) instruction.Length;
                                         var ops = string.Join(",", instruction.Operands.Select(x => x.Index));
                                         var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
                                         sw2.WriteLine($"SharpDisasm: {instruction} OPS: {ops}, OPS2: {ops2}");
@@ -129,6 +134,7 @@ namespace Program {
                                     // ignore
                                     sw2.WriteLine("SharpDisasm: failed");
                                 }
+                                bw.Write(instructionLength);
                             }
                         }
                     }

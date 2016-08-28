@@ -1,14 +1,12 @@
-﻿#pragma warning disable 0162
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Numerics;
-using diStorm;
 using SharpDisasm;
+using SharpDisasm.Udis86;
 
 namespace Program {
 
@@ -16,7 +14,7 @@ namespace Program {
 
         public class State {
             public Win32Imports.ContextX64 Context;
-            public diStorm.DecodedInst Instruction;
+            public Instruction Instruction;
             public string Line;
             public Dictionary<ulong, ulong> HitCounts = new Dictionary<ulong, ulong>();
             public int StackDepth;
@@ -58,10 +56,8 @@ namespace Program {
             var mem = DebugProcessUtils.ReadBytes(process, breakAddress, AsmUtil.MaxInstructionBytes);
             var distance = (long)(breakAddress - cm.LastBreakAddress);
             
-            // TODO: redundant instruction decoding
             var decodedInstruction = AsmUtil.Disassemble(process, breakAddress);
-            var decomposedInstruction = AsmUtil.DisassembleDecode(process, breakAddress);
-            var hex = DebugProcessUtils.BytesToHex(mem.Take((int) decodedInstruction.Size).ToArray());
+            var hex = DebugProcessUtils.BytesToHex(mem.Take(decodedInstruction.Length).ToArray());
 
             var moduleAddressTuple = _importResolver.LookupAddress(breakAddress);
             var module = moduleAddressTuple.Item1;
@@ -76,10 +72,9 @@ namespace Program {
             if (_oldState.ContainsKey(threadId)) {
                 stackDepth = _oldState[threadId].StackDepth;
             }
-            if (decodedInstruction.Mnemonic.Equals("CALL")) {
+            if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Icall) {
                 stackDepth++;
-            }
-            else if (decodedInstruction.Mnemonic.Equals("RET")) {
+            } else if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Iret) {
                 stackDepth--;
             }
 
@@ -109,9 +104,9 @@ namespace Program {
             // clean up breakpoints as soon as they are hit
             cm.DisableBreakPointOnHit(breakAddress);
 #if UseDebugger
-            if (decodedInstruction.Mnemonic.Equals("CALL") && !module.Equals(Specifics.TraceModuleName)) {
+            if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Icall && !module.Equals(Specifics.TraceModuleName)) {
                     // step over call
-                    var returnAddress = breakAddress + decodedInstruction.Size;
+                    var returnAddress = breakAddress + (ulong) decodedInstruction.Length;
                     logFile.WriteLine($"installing return breakpoint at {returnAddress:X}");
                     cm.EnableBreakPoint(returnAddress, new ContextManager.BreakPointInfo {
                         Description = "return breakpoint"
@@ -121,17 +116,17 @@ namespace Program {
                 }
                 else {
                     if (module.Equals(Specifics.TraceModuleName)) {
-                        if (decodedInstruction.Mnemonic.Equals("RET")) {
+                        if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Iret) {
 
                         }
-                        else if (decodedInstruction.Mnemonic.Equals("JMP")) {
+                        else if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Ijmp) {
 
                         }
                         else {
-                            var cAddress = breakAddress + decodedInstruction.Size;
-                            logFile.WriteLine($"setting continuation at 0x{cAddress:X} for {decodedInstruction.Mnemonic} of size {decodedInstruction.Size}");
+                            var cAddress = breakAddress + (ulong) decodedInstruction.Length;
+                            logFile.WriteLine($"setting continuation at 0x{cAddress:X} for {decodedInstruction.Mnemonic} of size {decodedInstruction.Length}");
                             cm.EnableBreakPoint(cAddress, new ContextManager.BreakPointInfo {
-                                Description = $"for {decodedInstruction.Mnemonic} of size {decodedInstruction.Size}"
+                                Description = $"for {decodedInstruction.Mnemonic} of size {(ulong) decodedInstruction.Length}"
                             });
                         }
                         /*foreach (var condJump in new string[] {
@@ -150,10 +145,10 @@ namespace Program {
                                 break;
                             }
                         }*/
-                        if (decodedInstruction.Mnemonic.Equals("CALL")) {
+                        if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Icall) {
                             // step over instruction
                             lastCallAddressInTraceModule = breakAddress;
-                            lastCallAddressInTraceModule += decodedInstruction.Size;
+                            lastCallAddressInTraceModule += (ulong) decodedInstruction.Length;
                         }
                         logFile.WriteLine($"setting next trace for {threadId}");
                         ContextManager.setTrace((uint)threadId);
@@ -201,8 +196,8 @@ namespace Program {
             var lineBreak = false;
             if (_oldState.ContainsKey(threadId)) {
                 previous = _oldState[threadId].Line;
-                if (_oldState[threadId].Instruction.Mnemonic.Equals("RET") ||
-                    _oldState[threadId].Instruction.Mnemonic.Equals("CALL")) {
+                if (_oldState[threadId].Instruction.Mnemonic == ud_mnemonic_code.UD_Iret ||
+                    _oldState[threadId].Instruction.Mnemonic == ud_mnemonic_code.UD_Icall) {
                     lineBreak = true;
                 }
             }
@@ -221,7 +216,8 @@ namespace Program {
             pattern += "((?<sign2>[" + Regex.Escape("+") + Regex.Escape("-") + "])0x(?<offset>[0-9a-f]+))?";
             pattern += Regex.Escape("]");
             var rex = new Regex(pattern);
-            var operands = decodedInstruction.Operands;
+            // TODO: rewrite offset code to use SharpDisasm structure instead of string parsing
+            var operands = decodedInstruction.Operands.ToString();
             var match = rex.Matches(operands);
             BigInteger memAddress = 0;
             if (match.Count > 0) {
@@ -240,8 +236,7 @@ namespace Program {
                 }
                 var offset = offsetHex.Equals("") ? 0 : long.Parse(offsetHex, System.Globalization.NumberStyles.AllowHexSpecifier);
                 memAddress = new BigInteger(reg1Value) + sign1 * new BigInteger(reg2Value) * multiplier + sign2 * new BigInteger(offset);
-            }
-            else if (decodedInstruction.Mnemonic.Equals("POP") || decodedInstruction.Mnemonic.Equals("PUSH")) {
+            } else if (decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Ipop || decodedInstruction.Mnemonic == ud_mnemonic_code.UD_Ipush) {
                 memAddress = context.Rsp;
             }
 
@@ -259,7 +254,6 @@ namespace Program {
             _oldState[threadId] = new State {
                 Context = context,
                 Instruction = decodedInstruction,
-                SdInstruction = decomposedInstruction,
                 Line = oldLine,
                 HitCounts = hitCounts,
                 StackDepth = stackDepth,

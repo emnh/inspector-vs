@@ -5,15 +5,15 @@ using System.Diagnostics;
 namespace Program {
 
     public class MyTraceListener : TraceListener {
-        private Action<string> log;
+        private readonly Action<string> _log;
 
         public MyTraceListener(Action<string> log) {
-            this.log = log;
+            _log = log;
         }
 
         public override void Fail(string msg, string detailedMsg) {
             // log the message (don't display a MessageBox)
-            log(msg);
+            _log(msg);
         }
 
         public override void Write(string message) {

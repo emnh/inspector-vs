@@ -1,5 +1,3 @@
-#pragma warning disable 0162
-
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -7,6 +5,8 @@ using System.ComponentModel;
 using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
+using SharpDisasm;
+using SharpDisasm.Udis86;
 
 namespace Program {
     public class ContextManager {
@@ -419,7 +419,7 @@ namespace Program {
                                 }
                             }
 
-                            diStorm.DecodedInst instr = null;
+                            Instruction instr = null;
                             string asm = "N/A";
                             string asm2 = "N/A";
                             try {
@@ -443,7 +443,7 @@ namespace Program {
                                 case Win32Imports.ExceptionCodeStatus.ExceptionBreakpoint:        
                                     asm = AsmUtil.FormatInstruction(instr);
                                     //if (instr.Mnemonic.Equals("INT") && instr.Operands.Equals("3")) {
-                                    if (instr != null && instr.Mnemonic.Equals("INT 3")) {
+                                    if (instr != null && instr.Mnemonic == ud_mnemonic_code.UD_Iint3) {
                                         LoggerInstance.WriteLine($"int3 breakpoint at: {exceptionAddress:X}, evtCount: {CurrentInfo.EventCount}, asm: {asm}");
                                         LoggerInstance.WriteLine("overwriting with NOP");
                                         DebugProcessUtils.WriteByte(CurrentProcess, exceptionAddress, AsmUtil.Nop);
@@ -466,13 +466,13 @@ namespace Program {
                                     msg = $"invalid operation, chance: { evt.Exception.dwFirstChance}";
                                     msg += $", at: 0x{breakAddress:X}, exc at: 0x{exceptionAddress:X}, asm: {asm}, exc asm: {asm2}";
                                     // anti-anti-debug measure
-                                    if (instr != null && instr.Mnemonic.Equals("UD2")) {
+                                    if (instr != null && instr.Mnemonic == ud_mnemonic_code.UD_Iud2) {
                                         LoggerInstance.WriteLine("overwriting UD2 with NOP");
                                         DebugProcessUtils.WriteBytes(CurrentProcess, exceptionAddress, new[] { AsmUtil.Nop, AsmUtil.Nop });
                                     }
                                     // anti-anti-debug measure
                                     var instr2 = AsmUtil.Disassemble(CurrentProcess, exceptionAddress - 1);
-                                    if (instr2.Mnemonic.Equals("INT2D")) {
+                                    if (instr2.Mnemonic == ud_mnemonic_code.UD_Iint && instr2.Operands[0].Value == 0x2D) {
                                         ulong rip = context.Rip - 1;
                                         setRip((uint) evt.dwThreadId, false, rip);
                                         LoggerInstance.WriteLine("INT2D encountered, subtracting 1 from Rip");

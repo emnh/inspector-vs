@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Numerics;
-using diStorm;
 using SharpDisasm;
 
 namespace Program {
@@ -36,10 +35,7 @@ namespace Program {
             var originalCode = DebugProcessUtils.ReadBytes(process, patchSite, patchAreaSize);
 
             // minus patchSiteSize because we need to restore patchSiteSize bytes
-            var ci = new diStorm.CodeInfo(0, originalCode.Take(patchAreaSize - patchSiteSize).ToArray(), diStorm.DecodeType.Decode64Bits, 0);
-            var dr = new diStorm.DecodedResult(patchAreaSize);
-            diStorm.diStorm3.Decode(ci, dr);
-            var decodedInstructions = dr.Instructions;
+            var decodedInstructions = AsmUtil.TryDisassembleMany(originalCode.Take(patchAreaSize - patchSiteSize).ToArray(), patchAreaSize);
 
             var bogusAddress = Win32Imports.VirtualAllocEx(
                 processHandle,
@@ -252,10 +248,15 @@ namespace Program {
             // restore function
             uint offset = 0;
             var lastReturn = 0;
-            foreach (var instr in decodedInstructions.Select((value, index) => new { Value = value, Index = index })) {
+            foreach (var maybeInstruction in decodedInstructions) {
+                if (!maybeInstruction.Present) {
+                    break;
+                }
+                var instruction = maybeInstruction.Instruction;
+                
                 var startOfRestore = ptr;
 
-                Console.WriteLine($"instruction {instr.Value.Mnemonic}, size: {instr.Value.Size}");
+                Console.WriteLine($"instruction {instruction.Mnemonic}, size: {instruction.Length}");
                 // reserve space for call site restore 1
                 // mov rax, constant
                 codeSiteCode[ptr++] = 0x48;
@@ -263,7 +264,7 @@ namespace Program {
                 var originalOffset = 0;
                 var patchOffset = 0;
                 foreach (var b in originalCode.Skip((int) offset).Take(8)) {
-                    if (originalOffset < instr.Value.Size) {
+                    if (originalOffset < instruction.Length) {
                         codeSiteCode[ptr++] = b;
                     } else {
                         codeSiteCode[ptr++] = patchSiteCode[patchOffset++];
@@ -282,7 +283,7 @@ namespace Program {
                 codeSiteCode[ptr++] = 0x48;
                 codeSiteCode[ptr++] = 0xB8;
                 foreach (var b in originalCode.Skip((int)offset + 8).Take(8)) {
-                    if (originalOffset < instr.Value.Size) {
+                    if (originalOffset < instruction.Length) {
                         codeSiteCode[ptr++] = b;
                     }
                     else {
@@ -303,7 +304,7 @@ namespace Program {
                 codeSiteCode[ptr++] = 0x48;
                 codeSiteCode[ptr++] = 0xB8;
                 foreach (var b in originalCode.Skip((int)offset + 16).Take(8)) {
-                    if (originalOffset < instr.Value.Size) {
+                    if (originalOffset < instruction.Length) {
                         codeSiteCode[ptr++] = b;
                     }
                     else {
@@ -324,7 +325,7 @@ namespace Program {
                 codeSiteCode[ptr++] = 0x48;
                 codeSiteCode[ptr++] = 0x83;
                 codeSiteCode[ptr++] = 0xC3;
-                codeSiteCode[ptr++] = (byte) (instr.Value.Size);
+                codeSiteCode[ptr++] = (byte) (instruction.Length);
 
                 // return
                 lastReturn = ptr;
@@ -334,7 +335,7 @@ namespace Program {
                 Console.WriteLine($"mul: {endOfRestore - startOfRestore}");
                 codeSiteCode[multiplyImmediate] = (byte) (endOfRestore - startOfRestore);
 
-                offset += instr.Value.Size;
+                offset += (uint) instruction.Length;
             }
 
             ptr = lastReturn;
@@ -356,8 +357,7 @@ namespace Program {
 
         public class OldState {
             public Win32Imports.ContextX64 OldContext;
-            public diStorm.DecodedInst OldInstruction;
-            public Instruction OldSdInstruction;
+            public Instruction OldInstruction;
         }
 
         public static void TraceIt(Process process, ulong patchSite, Logger logger, bool debug = true) {
@@ -419,17 +419,15 @@ namespace Program {
                                 ContextManager.setTrace((uint)evt.dwThreadId);
 
                                 var instr = AsmUtil.Disassemble(process, exceptionAddress);
-                                var instr2 = AsmUtil.DisassembleDecode(process, exceptionAddress);
                                 var asm = AsmUtil.FormatInstruction(instr);
                                 var strContext = oldThreadState.ContainsKey(evt.dwThreadId) ? 
-                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].OldContext, oldThreadState[evt.dwThreadId].OldSdInstruction) : 
+                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].OldContext, oldThreadState[evt.dwThreadId].OldInstruction) : 
                                     AsmUtil.FormatContext(context);
                                 logger.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X}, 0x{breakAddress:X} code {code}: {asm}, regs-1: {strContext}");
 
                                 oldThreadState[evt.dwThreadId] = new OldState {
                                     OldContext = context,
-                                    OldInstruction = instr,
-                                    OldSdInstruction = instr2
+                                    OldInstruction = instr
                                 };
 
                                 if (code == Win32Imports.ExceptionCodeStatus.ExceptionAccessViolation) {

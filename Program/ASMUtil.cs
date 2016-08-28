@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -17,6 +16,12 @@ namespace Program {
     public class MaybeUdType {
         public bool Present;
         public ud_type Type;
+    }
+
+    public class MaybeInstruction {
+        public bool Present;
+        public ulong Offset;
+        public Instruction Instruction;
     }
 
     public class DecodeException : Exception {
@@ -310,33 +315,30 @@ namespace Program {
                 "";
         }
 
-        [Obsolete]
-        public static DecodedInst Disassemble(Process process, ulong address) {
+        public static Instruction Disassemble(Process process, ulong address) {
             var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes);
-            var ci = new CodeInfo(0, mem, DecodeType.Decode64Bits, 0);
-            var dr = new DecodedResult(MaxInstructions);
-            diStorm3.Decode(ci, dr);
-            var decodedInstruction = dr.Instructions.First();
-            return decodedInstruction;
+            return Disassemble(mem);
         }
 
-        public static Instruction DisassembleDecode(Process process, ulong address) {
+        public static Instruction ReadOneAndDisassemble(Process process, ulong address) {
             var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes);
-            using (
-                DebugAssertControl dbg = new DebugAssertControl((x) => {
-                    throw new DecodeException("failed to decode");
-                })) {
-                SharpDisasm.ArchitectureMode mode = SharpDisasm.ArchitectureMode.x86_64;
-                SharpDisasm.Disassembler.Translator.IncludeAddress = false;
-                SharpDisasm.Disassembler.Translator.IncludeBinary = false;
+            return Disassemble(mem);
+        }
 
-                var disasm = new SharpDisasm.Disassembler(mem, mode, 0, true);
+        public static Instruction Disassemble(byte[] mem) {
+            using (new DebugAssertControl((x) => { throw new DecodeException("failed to decode"); })) {
+                var mode = ArchitectureMode.x86_64;
+                Disassembler.Translator.IncludeAddress = false;
+                Disassembler.Translator.IncludeBinary = false;
+
+                var disasm = new Disassembler(mem, mode, 0, true);
                 // Disassemble each instruction and output to console
                 try {
                     foreach (var instruction in disasm.Disassemble()) {
                         return instruction;
                     }
-                } catch (IndexOutOfRangeException) {
+                }
+                catch (IndexOutOfRangeException) {
                     // ignore
                     throw new DecodeException("failed to decode");
                 }
@@ -344,12 +346,46 @@ namespace Program {
             throw new DecodeException("failed to decode");
         }
 
-        public static DecodedInst[] DisassembleMany(Process process, ulong address, int instructions = MaxInstructions) {
+        public static MaybeInstruction[] TryDisassembleMany(Process process, ulong address, int instructions = MaxInstructions) {
             var mem = DebugProcessUtils.ReadBytes(process, address, MaxInstructionBytes * instructions);
-            var ci = new CodeInfo(0, mem, DecodeType.Decode64Bits, 0);
-            var dr = new DecodedResult(instructions);
-            diStorm3.Decode(ci, dr);
-            return dr.Instructions;
+            return TryDisassembleMany(mem, instructions);
+        }
+
+        public static MaybeInstruction[] TryDisassembleMany(byte[] mem, int instructions) {
+            var retInstructions = new List<MaybeInstruction>();
+            ulong offset = 0;
+            using (new DebugAssertControl((x) => { retInstructions.Add(new MaybeInstruction() {
+                // ReSharper disable once AccessToModifiedClosure
+                Offset = offset
+            }); })) {
+                var mode = ArchitectureMode.x86_64;
+                Disassembler.Translator.IncludeAddress = false;
+                Disassembler.Translator.IncludeBinary = false;
+
+                var disasm = new Disassembler(mem, mode, 0, true);
+                // Disassemble each instruction and output to console
+                try {
+                    int i = 0;
+                    foreach (var instruction in disasm.Disassemble()) {
+                        if (i >= instructions) {
+                            break;
+                        }
+                        retInstructions.Add(new MaybeInstruction(){
+                            Offset = offset,
+                            Present = true,
+                            Instruction = instruction
+                        });
+                        offset += (ulong) instruction.Length;
+                    }
+                }
+                catch (IndexOutOfRangeException) {
+                    // ignore
+                    retInstructions.Add(new MaybeInstruction() {
+                        Offset = offset
+                    });
+                }
+            }
+            return retInstructions.ToArray();
         }
 
         private static string FormatFlags(EflagsEnum flags) {
@@ -366,9 +402,9 @@ namespace Program {
             }
         }
 
-        public static string FormatInstruction(DecodedInst decodedInstruction) {
-            var asm = $"{decodedInstruction.Mnemonic} {decodedInstruction.Operands}";
-            return asm;
+        public static string FormatInstruction(Instruction decodedInstruction) {
+            //var asm = $"{decodedInstruction.Mnemonic} {decodedInstruction.Operands}";
+            return decodedInstruction.ToString();
         }
 
         public static string FormatInstruction(CodeInfo ci, DecomposedInst decodedInstruction) {
@@ -487,7 +523,7 @@ namespace Program {
                         var callLocation = ptr - potentialCallOffset;
                         var instr = Disassemble(process, callLocation);
                         var asm = FormatInstruction(instr);
-                        if (instr.Mnemonic.Equals("CALL") || potentialCallOffset == 0) {
+                        if (instr.Mnemonic == ud_mnemonic_code.UD_Icall || potentialCallOffset == 0) {
                             log.WriteLine($"stack call {offset}-{potentialCallOffset}: {module}+0x{relative:X} 0x{ptr:X}: asm 0x{data:X} {asm}");
                         }
                     } catch (Exception) {

@@ -20,7 +20,11 @@ namespace Test {
 
             TestFormatContext(process);
 
+            var mem = new byte[] { 0xCD, 0x2D };
+            var asm = AsmUtil.Disassemble(mem);
             
+            Console.WriteLine($"asm: {asm}, {asm.Mnemonic}, {asm.Operands[0].Value:X}");
+
             ImportResolver ir = new ImportResolver(process);
             Console.WriteLine($"baseAddress: {(ulong) process.MainModule.BaseAddress:X}");
             var address = ir.ResolveRelativeAddress(Specifics.StartAddress);
@@ -48,27 +52,26 @@ namespace Test {
             ContextManager.getRip((uint) process.Threads[0].Id, ref context, ContextManager.GetRipAction.ActionGetContext);
             var context2 = new Win32Imports.ContextX64();
             ContextManager.getRip((uint) process.Threads[0].Id, ref context2, ContextManager.GetRipAction.ActionGetContext);
-            var instr = AsmUtil.DisassembleDecode(process, context2.Rip);
+            var instr = AsmUtil.ReadOneAndDisassemble(process, context2.Rip);
             var asm = instr.ToString();
             Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context)}");
             Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context2)}");
             Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContextDiff(context2, context, instr)}");
         }
 
-        private static void DumpModuleSizes(Process process) {
+        public static void DumpModuleSizes(Process process) {
             foreach (ProcessModule module in process.Modules) {
                 var hexAddr = module.BaseAddress.ToString("X");
                 Console.WriteLine($"{module.ModuleName}: {hexAddr} {module.ModuleMemorySize}");
             }
         }
 
-        private static void HexStartAddr(Process process) {
-            
+        public static void HexStartAddr(Process process) {    
             var hex = process.MainModule.BaseAddress.ToString("X");
             Console.WriteLine($"baseaddr: 0x{hex}");
         }
 
-        private static void SizeOfDebugStuff() {
+        public static void SizeOfDebugStuff() {
             var offset = ulong.Parse("ffffffffffffffa0", System.Globalization.NumberStyles.AllowHexSpecifier);
             Console.WriteLine($"long: {(long) offset}");
 

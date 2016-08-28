@@ -37,7 +37,7 @@
         var code = (ulong) traceState.codeAddress;
 
         while (true) {
-            foreach (var instr in ASMUtil.DisassembleMany(process, code, 20)) {
+            foreach (var instr in ASMUtil.TryDisassembleMany(process, code, 20)) {
                 logger.WriteLine($"{instr.Offset}: " + ASMUtil.FormatInstruction(instr));
             }
 
