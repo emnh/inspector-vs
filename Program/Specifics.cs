@@ -52,6 +52,7 @@ namespace Program {
         public static string AsmDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-dump.txt");
         public static string WriteAsmSizesDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-sizes-write.bin");
         public static string ReadAsmSizesDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-sizes-read.bin");
+        public static string PatchAsmDumpFileName = Path.Combine(BasePath, @"patch-asm-dump-filename.txt");
 
         static Specifics() {
             Directory.CreateDirectory(BasePath);

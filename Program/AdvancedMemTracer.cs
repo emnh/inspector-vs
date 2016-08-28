@@ -5,6 +5,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
+using AsmJit.AssemblerContext;
+using AsmJit.Common.Operands;
 using SharpDisasm;
 
 namespace Program {
@@ -60,295 +63,191 @@ namespace Program {
                 return;
             }
 
-            var patchSiteCode = new byte[patchSiteSize];
-            var codeSiteCode = new byte[codeSize];
-            var patchPtr = 0;
-            var ptr = 0;
+            int addrSize = Marshal.SizeOf(typeof(IntPtr));
 
-            //patchSiteCode[patchPtr++] = 0xCC;
-            // push rax, see RESTORE_RAX
-            patchSiteCode[patchPtr++] = 0x50;
-            // lea rax, [rip-8]
-            patchSiteCode[patchPtr++] = 0x48;
-            patchSiteCode[patchPtr++] = 0x8D;
-            patchSiteCode[patchPtr++] = 0x05;
-            patchSiteCode[patchPtr++] = 0xF8;
-            patchSiteCode[patchPtr++] = 0xFF;
-            patchSiteCode[patchPtr++] = 0xFF;
-            patchSiteCode[patchPtr++] = 0xFF;
-            // push rax (rip)
-            patchSiteCode[patchPtr++] = 0x50;
-            // mov rax, constant
-            patchSiteCode[patchPtr++] = 0x48;
-            patchSiteCode[patchPtr++] = 0xB8;
-            foreach (var b in BitConverter.GetBytes((ulong) codeAddress)) {
-                patchSiteCode[patchPtr++] = b;
-            }
-            // push rax
-            patchSiteCode[patchPtr++] = 0x50;
-            // ret
-            patchSiteCode[patchPtr++] = 0xC3;
-            patchPtr += 3;
+            var c1 = Assembler.CreateContext<Action>();
 
-            if (patchPtr != patchSiteSize)
-            {
-                logger.WriteLine($"made a mistake: {patchPtr} != {patchSiteSize}");
-                return;
-            }
+            // save rax
+            c1.Push(c1.Rax);
+            
+            // push return address
+            c1.Lea(c1.Rax, Memory.QWord(CodeContext.Rip, -addrSize));
+            c1.Push(c1.Rax);
 
-            // push rbp
-            codeSiteCode[ptr++] = 0x55;
-            // mov rbp, rsp
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x89;
-            codeSiteCode[ptr++] = 0xE5;
-            // push flags
-            codeSiteCode[ptr++] = 0x9C;
-            // push rbx
-            codeSiteCode[ptr++] = 0x53;
-            // push rcx
-            codeSiteCode[ptr++] = 0x51;
-            // push rdx
-            codeSiteCode[ptr++] = 0x52;
+            // push "call" address
+            c1.Mov(c1.Rax, (ulong) codeAddress);
+            c1.Push(c1.Rax);
+
+            // "call" codeAddress
+            c1.Ret();
+
+            c1.Nop();
+            c1.Nop();
+            c1.Nop();
+
+            var patchSiteCodeJit = GetAsmJitBytes(c1);
+            Debug.Assert(patchSiteCodeJit.Length == patchSiteSize, "patch site size incorrect");
+
+            var c = Assembler.CreateContext<Action>();
+
+            c.Push(c.Rbp);
+            c.Mov(c.Rbp, c.Rsp);
+            c.Pushf();
+            c.Push(c.Rbx);
+            c.Push(c.Rcx);
+            c.Push(c.Rdx);
 
             // reserve space for last Rip address
-            // mov rax, constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xB8;
-            var smcLastRip = ptr;
-            ptr += 8;
+            c.Mov(c.Rax, (ulong) 0x0102030405060708);
+            var raxConstantJit = GetAsmJitBytes(c).Length - addrSize;
+            var smcLastRipJit = GetAsmJitBytes(c).Length - addrSize;
 
-            // lea rax, [rip-7-8]
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x8D;
-            codeSiteCode[ptr++] = 0x05;
-            codeSiteCode[ptr++] = 0xF1;
-            codeSiteCode[ptr++] = 0xFF;
-            codeSiteCode[ptr++] = 0xFF;
-            codeSiteCode[ptr++] = 0xFF;
-
-            // mov rcx, [rax]
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x8B;
-            codeSiteCode[ptr++] = 0x08;
-
-            // inc rcx
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xFF;
-            codeSiteCode[ptr++] = 0xC1;
-
-            // xchg [rax], rcx
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x87;
-            codeSiteCode[ptr++] = 0x08;
+            c.Lea(c1.Rax, Memory.QWord(CodeContext.Rip, -7 - addrSize));
+            c.Mov(c.Rcx, Memory.QWord(c.Rax));
+            c.Inc(c.Rcx);
+            c.Xchg(Memory.QWord(c.Rax), c.Rcx);
 
             // find return address
-            // mov rbx, [rbp+8]
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x8B;
-            codeSiteCode[ptr++] = 0x5D;
-            codeSiteCode[ptr++] = 0x08;
+            c.Mov(c.Rbx, Memory.QWord(c.Rbp, addrSize));
 
             // call pastEndCode
-            codeSiteCode[ptr++] = 0xE8;
-            var callPastEndCodeImmediate = ptr;
-            ptr += 4;
-            var callPastEndCodeBaseOffset = ptr;
+            var pastEndCode = c.Label();
+            c.Call(pastEndCode);
 
-            // END FUNCTION
-
+            // start of function end code
+            
             // put new patch in place          
-            // mov rax, constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xB8;
-            foreach (var b in patchSiteCode.Skip(0).Take(8)) {
-                codeSiteCode[ptr++] = b;
-            }
 
             // restore patch site 1
-            // mov [rbx], rax
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x89;
-            codeSiteCode[ptr++] = 0x03;
-
-            // mov rax, constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xB8;
-            foreach (var b in patchSiteCode.Skip(8).Take(8)) {
-                codeSiteCode[ptr++] = b;
-            }
-
+            c.Mov(c.Rax, BitConverter.ToUInt64(patchSiteCodeJit, 0));
+            c.Mov(Memory.QWord(c.Rbx), c.Rax);
+            
             // restore patch site 2
-            // mov [rbx+8], rax
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x89;
-            codeSiteCode[ptr++] = 0x43;
-            codeSiteCode[ptr++] = 0x08;
-
-            // mov rax, constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xB8;
-            foreach (var b in patchSiteCode.Skip(16).Take(8)) {
-                codeSiteCode[ptr++] = b;
-            }
+            c.Mov(c.Rax, BitConverter.ToUInt64(patchSiteCodeJit, addrSize));
+            c.Mov(Memory.QWord(c.Rbx, addrSize), c.Rax);
 
             // restore patch site 3
-            // mov [rbx+16], rax
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x89;
-            codeSiteCode[ptr++] = 0x43;
-            codeSiteCode[ptr++] = 0x10;
-            
+            c.Mov(c.Rax, BitConverter.ToUInt64(patchSiteCodeJit, addrSize * 2));
+            c.Mov(Memory.QWord(c.Rbx, addrSize * 2), c.Rax);
+
             // end put new patch in place
 
-            // mov rax,[rbp+16]
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x8B;
-            codeSiteCode[ptr++] = 0x45;
-            codeSiteCode[ptr++] = 0x10;
+            // restore rax from call site
+            c.Mov(c.Rax, Memory.QWord(c.Rbp, 2 * addrSize));
             
-            // pop rdx
-            codeSiteCode[ptr++] = 0x5A;
-            // pop rcx
-            codeSiteCode[ptr++] = 0x59;
-            // pop rbx
-            codeSiteCode[ptr++] = 0x5B;
-            // pop flags
-            codeSiteCode[ptr++] = 0x9D;
-            // pop rbp
-            codeSiteCode[ptr++] = 0x5D;
-            // ret 8
-            codeSiteCode[ptr++] = 0xC2;
-            codeSiteCode[ptr++] = 0x08;
-            codeSiteCode[ptr++] = 0x00;
+            c.Pop(c.Rdx);
+            c.Pop(c.Rcx);
+            c.Pop(c.Rbx);            
+            c.Popf();
+            c.Pop(c.Rbp);            
+            c.Ret((ulong) 8);
 
-            codeSiteCode[callPastEndCodeImmediate] = (byte) (ptr - callPastEndCodeBaseOffset);
+            c.Bind(pastEndCode);
 
-            // imul rcx,rcx,constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x6B;
-            codeSiteCode[ptr++] = 0xC9;
-            // = size of restore function
-            var multiplyImmediate = ptr;
-            codeSiteCode[ptr++] = 0x00;
+            c.Imul(c.Rcx, c.Rcx, 1);
+            var multiplyImmediateJit = GetAsmJitBytes(c).Length - 1;
 
-            // lea rcx, rcx+eax+constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0x8D;
-            codeSiteCode[ptr++] = 0x4C;
-            codeSiteCode[ptr++] = 0x08;
-            var leaRcxConstant = ptr;
-            codeSiteCode[ptr++] = 0x00;
+            c.Lea(c.Rcx, Memory.QWord(c.Rcx,c.Rax,0, 1));
+            var leaRcxConstantJit = GetAsmJitBytes(c).Length - 1;
 
-            // jmp rcx
-            codeSiteCode[ptr++] = 0xFF;
-            codeSiteCode[ptr++] = 0xE1;
+            c.Jmp(c.Rcx);
 
-            codeSiteCode[leaRcxConstant] = (byte)(ptr - smcLastRip);
+            var leaRcxConstantJitValue = GetAsmJitBytes(c).Length - smcLastRipJit;
 
             // restore function
             uint offset = 0;
+            uint offsetJit = 0;
             var lastReturn = 0;
+            var lastReturnJit = 0;
+            var restoreLengthJit = 0;
             foreach (var instruction in decodedInstructions) {
-                var startOfRestore = ptr;
+                var startOfRestoreJit = GetAsmJitBytes(c).Length;
 
-                //Console.WriteLine($"instruction {instruction.Mnemonic}, size: {instruction.Length}");
-                // reserve space for call site restore 1
-                // mov rax, constant
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0xB8;
-                var originalOffset = 0;
-                var patchOffset = 0;
-                foreach (var b in originalCode.Skip((int) offset).Take(8)) {
-                    if (originalOffset < instruction.Length) {
-                        codeSiteCode[ptr++] = b;
-                    } else {
-                        codeSiteCode[ptr++] = patchSiteCode[patchOffset++];
+                var originalOffsetJit = 0;
+                var patchOffsetJit = 0;
+                var restorePatchMix = new byte[3 * addrSize];
+                var restorePatchMixPtr = 0;
+                foreach (var b in originalCode.Skip((int) offsetJit).Take(restorePatchMix.Length)) {
+                    if (originalOffsetJit < instruction.Length) {
+                        restorePatchMix[restorePatchMixPtr++] = b;
                     }
-                    originalOffset++;
+                    else {
+                        restorePatchMix[restorePatchMixPtr++] = patchSiteCodeJit[patchOffsetJit++];
+                    }
+                    originalOffsetJit++;
                 }
 
                 // restore call site 1
-                // mov [rbx], rax
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0x89;
-                codeSiteCode[ptr++] = 0x03;
-
-                // reserve space for call site restore 2
-                // mov rax, constant
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0xB8;
-                foreach (var b in originalCode.Skip((int)offset + 8).Take(8)) {
-                    if (originalOffset < instruction.Length) {
-                        codeSiteCode[ptr++] = b;
-                    }
-                    else {
-                        codeSiteCode[ptr++] = patchSiteCode[patchOffset++];
-                    }
-                    originalOffset++;
-                }
+                c.Mov(c.Rax, BitConverter.ToUInt64(restorePatchMix, 0));
+                c.Mov(Memory.QWord(c.Rbx), c.Rax);
 
                 // restore call site 2
-                // mov [rbx+8], rax
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0x89;
-                codeSiteCode[ptr++] = 0x43;
-                codeSiteCode[ptr++] = 0x08;
-
-                // reserve space for call site restore 3
-                // mov rax, constant
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0xB8;
-                foreach (var b in originalCode.Skip((int)offset + 16).Take(8)) {
-                    if (originalOffset < instruction.Length) {
-                        codeSiteCode[ptr++] = b;
-                    }
-                    else {
-                        codeSiteCode[ptr++] = patchSiteCode[patchOffset++];
-                    }
-                    originalOffset++;
-                }
+                c.Mov(c.Rax, BitConverter.ToUInt64(restorePatchMix, addrSize));
+                c.Mov(Memory.QWord(c.Rbx, addrSize), c.Rax);
 
                 // restore call site 3
-                // mov [rbx+16], rax
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0x89;
-                codeSiteCode[ptr++] = 0x43;
-                codeSiteCode[ptr++] = 0x10;
-
+                c.Mov(c.Rax, BitConverter.ToUInt64(restorePatchMix, addrSize * 2));
+                c.Mov(Memory.QWord(c.Rbx, addrSize * 2), c.Rax);
+                
                 // prepare rbx to put new patch in place
-                // add rbx,instrSize
-                codeSiteCode[ptr++] = 0x48;
-                codeSiteCode[ptr++] = 0x83;
-                codeSiteCode[ptr++] = 0xC3;
-                codeSiteCode[ptr++] = (byte) (instruction.Length);
+                c.Add(c.Rbx, (byte) instruction.Length);
 
                 // return
-                lastReturn = ptr;
-                codeSiteCode[ptr++] = 0xC3;
-                var endOfRestore = ptr;
+                lastReturnJit = GetAsmJitBytes(c).Length;
+                c.Ret();
 
-                //Console.WriteLine($"mul: {endOfRestore - startOfRestore}");
-                codeSiteCode[multiplyImmediate] = (byte) (endOfRestore - startOfRestore);
+                restoreLengthJit = GetAsmJitBytes(c).Length - startOfRestoreJit;
 
-                offset += (uint) instruction.Length;
+                offsetJit += (uint) instruction.Length;
             }
-
-            ptr = lastReturn;
             
             // we set rbx to bogus so that patch is not written for last instruction in set
-            // mov rbx, constant
-            codeSiteCode[ptr++] = 0x48;
-            codeSiteCode[ptr++] = 0xBB;
-            foreach (var b in BitConverter.GetBytes((ulong) bogusAddress)) {
-                codeSiteCode[ptr++] = b;
+            c.Mov(c.Rbx, (ulong) bogusAddress);
+            c.Ret();
+
+            // overwrite some pieces of the code with values computed later on
+            var codeSiteCodeJit = GetAsmJitBytes(c);
+            for (var j = 0; j < 8; j++) {
+                codeSiteCodeJit[raxConstantJit + j] = 0;
             }
+            codeSiteCodeJit[multiplyImmediateJit] = (byte) restoreLengthJit;
+            codeSiteCodeJit[leaRcxConstantJit] = (byte) leaRcxConstantJitValue;
+            // overwrite last ret with nop
+            codeSiteCodeJit[lastReturnJit] = 0x90;
 
-            // return
-            codeSiteCode[ptr] = 0xC3;
+            var i = 0;
+            var nextOffset1 = 0;
+            using (var sw = new StreamWriter(Specifics.PatchAsmDumpFileName)) {
+                foreach (var s in codeSiteCodeJit.Select((b1) => $"b: 0x{b1:X2}")) {
+                    var asm1S = "";
+                    try {
+                        var asm1 = AsmUtil.Disassemble(codeSiteCodeJit.Skip(i).Take(AsmUtil.MaxInstructionBytes).ToArray());
+                        asm1S = i == nextOffset1 ? asm1.ToString() : "";
+                        if (i == nextOffset1) {
+                            nextOffset1 += asm1.Length;
+                        }
+                    }
+                    catch (DecodeException) {
+                        asm1S = "failed";
+                    }
+                    
+                    sw.WriteLine($"{s}: ASM: {asm1S}");
 
-            DebugProcessUtils.WriteBytes(process, (ulong) codeAddress, codeSiteCode);
-            DebugProcessUtils.WriteBytes(process, patchSite, patchSiteCode);
+                    i++;
+                }
+            }
+            
+            DebugProcessUtils.WriteBytes(process, (ulong) codeAddress, codeSiteCodeJit);
+            DebugProcessUtils.WriteBytes(process, patchSite, patchSiteCodeJit);
+        }
+
+        private static byte[] GetAsmJitBytes(CodeContext<Action> c) {
+            IntPtr patchSiteCodeJitRaw;
+            int patchSiteCodeJitSize;
+            c.Compile(out patchSiteCodeJitRaw, out patchSiteCodeJitSize);
+            var patchSiteCodeJitBytes = new byte[patchSiteCodeJitSize];
+            Marshal.Copy(patchSiteCodeJitRaw, patchSiteCodeJitBytes, 0, patchSiteCodeJitSize);
+            return patchSiteCodeJitBytes;
         }
 
         public class OldState {
