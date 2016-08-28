@@ -97,9 +97,9 @@ namespace Program {
             c.Push(c.Rcx);
             c.Push(c.Rdx);
 
-            // reserve space for last Rip address
+            // reserve space for last Rip address, the 01-08 is just so AsmJit doesn't shorten the instruction
+            // we overwrite the value to 0 later on
             c.Mov(c.Rax, (ulong) 0x0102030405060708);
-            var raxConstantJit = GetAsmJitBytes(c).Length - addrSize;
             var smcLastRipJit = GetAsmJitBytes(c).Length - addrSize;
 
             c.Lea(c1.Rax, Memory.QWord(CodeContext.Rip, -7 - addrSize));
@@ -155,9 +155,7 @@ namespace Program {
             var leaRcxConstantJitValue = GetAsmJitBytes(c).Length - smcLastRipJit;
 
             // restore function
-            uint offset = 0;
             uint offsetJit = 0;
-            var lastReturn = 0;
             var lastReturnJit = 0;
             var restoreLengthJit = 0;
             foreach (var instruction in decodedInstructions) {
@@ -208,7 +206,7 @@ namespace Program {
             // overwrite some pieces of the code with values computed later on
             var codeSiteCodeJit = GetAsmJitBytes(c);
             for (var j = 0; j < 8; j++) {
-                codeSiteCodeJit[raxConstantJit + j] = 0;
+                codeSiteCodeJit[smcLastRipJit + j] = 0;
             }
             codeSiteCodeJit[multiplyImmediateJit] = (byte) restoreLengthJit;
             codeSiteCodeJit[leaRcxConstantJit] = (byte) leaRcxConstantJitValue;
