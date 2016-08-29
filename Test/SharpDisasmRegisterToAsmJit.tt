@@ -1,0 +1,60 @@
+﻿<#@ template debug="false" hostspecific="false" language="C#" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="$(SolutionDir)\lib\SharpDisasm.dll" #>
+<#@ assembly name="$(SolutionDir)\lib\AsmJit.dll" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Reflection" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="AsmJit.AssemblerContext" #>
+<#@ import namespace="AsmJit.Common.Operands" #>
+<#@ import namespace="SharpDisasm.Udis86" #>
+
+// This file was auto-generated from SharpDisasmRegisterToASmJit.tt
+
+<#
+	var values = Enum.GetValues(typeof(ud_type)).Cast<ud_type>();
+	var dict = new Dictionary<string, string>();
+	var dict2 = new Dictionary<string, string>();
+	foreach (var field in typeof(CodeContext).GetProperties(BindingFlags.Instance |
+                                                                            BindingFlags.NonPublic |
+						                                                    BindingFlags.Public)) {
+		var transformed = "UD_R_" + field.Name.ToUpper();
+		dict[transformed] = field.Name;
+		dict2[transformed] = field.PropertyType.Name;
+	}
+#>
+
+<#@ output extension=".cs" #>
+
+using AsmJit.AssemblerContext;
+using AsmJit.Common.Operands;
+using SharpDisasm.Udis86;
+using Program;
+
+namespace Test {
+	public class SharpDisasmRegisterToAsmJitTT {
+		public static MaybeRegister SharpDisasmRegisterToAsmJitRegister(CodeContext context, ud_type type) {
+			var retVal = new MaybeRegister();
+			<#
+				foreach (var value in values) {
+					if (dict.ContainsKey(value.ToString())) {
+				#> 
+				switch (type) {
+					case ud_type.<#= value #>:
+						retVal = new MaybeRegister() {
+							Present = true,
+							Type = RegisterType.<#= dict2[value.ToString()] #>,
+							Register = context.<#= dict[value.ToString()] #>
+						};
+						break;
+				}	
+				<#
+					}
+				}
+            
+			#>
+            return retVal;
+        }
+	}
+}

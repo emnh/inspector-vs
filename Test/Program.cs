@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
+using AsmJit.AssemblerContext;
+using AsmJit.Common;
+using AsmJit.Common.Operands;
 using Program;
 
 namespace Test {
@@ -18,18 +22,20 @@ namespace Test {
 
             Process process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
 
-            TestFormatContext(process);
+            var c = Assembler.CreateContext<Action>();
+            c.Sub(c.Rcx, 1);
+            c.Compile();
+            var bs = AsmUtil.GetAsmJitBytes(c);
+            Console.WriteLine($"bytes: {AsmUtil.BytesToHex(bs)}");
+            var asm = AsmUtil.Disassemble(bs.Skip(0).ToArray());
+            Console.WriteLine($"asm: {asm}");
 
-            var mem = new byte[] { 0xCD, 0x2D };
-            var asm = AsmUtil.Disassemble(mem);
-            
-            Console.WriteLine($"asm: {asm}, {asm.Mnemonic}, {asm.Operands[0].Value:X}");
+            // TestFormatContext(process);
 
-            ImportResolver ir = new ImportResolver(process);
-            Console.WriteLine($"baseAddress: {(ulong) process.MainModule.BaseAddress:X}");
-            var address = ir.ResolveRelativeAddress(Specifics.StartAddress);
-            Console.WriteLine($"address: {address:X}");
-            
+            // TestDisassemble();
+
+            // TestResolve(process);
+
             //var instr = dr2.Instructions.First();
             //instr.Operands
 
@@ -45,6 +51,19 @@ namespace Test {
 
             Console.WriteLine("done");
             Console.ReadKey();
+        }
+
+        private static void TestResolve(Process process) {
+            ImportResolver ir = new ImportResolver(process);
+            Console.WriteLine($"baseAddress: {(ulong) process.MainModule.BaseAddress:X}");
+            var address = ir.ResolveRelativeAddress(Specifics.StartAddress);
+            Console.WriteLine($"address: {address:X}");
+        }
+
+        private static void TestDisassemble() {
+            var mem = new byte[] {0xCD, 0x2D};
+            var asm = AsmUtil.Disassemble(mem);
+            Console.WriteLine($"asm: {asm}, {asm.Mnemonic}, {asm.Operands[0].Value:X}");
         }
 
         private static void TestFormatContext(Process process) {

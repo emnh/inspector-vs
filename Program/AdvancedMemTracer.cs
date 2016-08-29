@@ -14,6 +14,7 @@ namespace Program {
 
     public class AdvancedMemTracer {
         public class TraceState {
+            public ulong TraceLogAddress;
             public ulong CodeAddress;
         }
 
@@ -21,20 +22,21 @@ namespace Program {
             return File.ReadAllBytes(path);
         }
 
-        public static void InstallTracer(Process process, ulong patchSite, Logger logger, byte[] asmSizes) {
+        public static TraceState InstallTracer(Process process, ulong patchSite, Logger logger, byte[] asmSizes, ImportResolver ir) {
             var processHandle = Win32Imports.OpenProcess(Win32Imports.ProcessAccessFlags.All, false, process.Id);
 
-            var retVal = new TraceState();
+            var traceState = new TraceState();
 
             if ((ulong)processHandle == 0)
             {
                 logger.WriteLine("could not open process");
-                return;
+                return null;
             }
 
             const int patchSiteSize = 24;
-            const int patchAreaSize = 100;
-            const int codeSize = 1024 + patchAreaSize * 100;
+            const int codeSize = 1024;
+            const int traceLogSize = 1024;
+
             var originalCode = DebugProcessUtils.ReadBytes(process, (ulong) process.MainModule.BaseAddress, process.MainModule.ModuleMemorySize);
 
             var originalCodeAddress = Win32Imports.VirtualAllocEx(
@@ -45,7 +47,18 @@ namespace Program {
                 Win32Imports.MemoryProtection.ReadWrite);
             if ((ulong) originalCodeAddress == 0) {
                 logger.WriteLine($"could not allocate memory for {nameof(originalCodeAddress)}");
-                return;
+                return null;
+            }
+
+            var traceLogAddress = Win32Imports.VirtualAllocEx(
+                processHandle,
+                new IntPtr(0),
+                new IntPtr(traceLogSize),
+                Win32Imports.AllocationType.Commit | Win32Imports.AllocationType.Reserve,
+                Win32Imports.MemoryProtection.ReadWrite);
+            if ((ulong) traceLogAddress == 0) {
+                logger.WriteLine($"could not allocate memory for {nameof(traceLogAddress)}");
+                return null;
             }
 
             var injectedCodeAddress = Win32Imports.VirtualAllocEx(
@@ -56,7 +69,7 @@ namespace Program {
                 Win32Imports.MemoryProtection.ExecuteReadWrite);
             if ((ulong) injectedCodeAddress == 0) {
                 logger.WriteLine($"could not allocate memory for {nameof(injectedCodeAddress)}");
-                return;
+                return null;
             }
 
             var asmSizesAddress = Win32Imports.VirtualAllocEx(
@@ -67,12 +80,11 @@ namespace Program {
                 Win32Imports.MemoryProtection.ReadWrite);
             if ((ulong) asmSizesAddress == 0) {
                 logger.WriteLine($"could not allocate memory for {nameof(asmSizesAddress)}");
-                return;
+                return null;
             }
 
-            retVal.CodeAddress = (ulong)injectedCodeAddress;
-
-
+            traceState.CodeAddress = (ulong) injectedCodeAddress;
+            traceState.TraceLogAddress = (ulong) traceLogAddress;
 
             int addrSize = Marshal.SizeOf(typeof(IntPtr));
 
@@ -96,7 +108,7 @@ namespace Program {
             c1.Nop();
             c1.Nop();
 
-            var patchSiteCodeJit = GetAsmJitBytes(c1);
+            var patchSiteCodeJit = AsmUtil.GetAsmJitBytes(c1);
             Debug.Assert(patchSiteCodeJit.Length == patchSiteSize, "patch site size incorrect");
 
             var c = Assembler.CreateContext<Action>();
@@ -108,10 +120,21 @@ namespace Program {
             c.Push(c.Rcx);
             c.Push(c.Rdx);
 
+            // log thread id
+            var getThreadContext = ir.LookupFunction("KERNEL32.DLL:GetCurrentThreadId");
+            //c.Call(getThreadContext);
+            c.Lea(c.Rax, Memory.QWord(CodeContext.Rip, 13)); // skips next instructions
+            c.Push(c.Rax);
+            c.Mov(c.Rax, getThreadContext);
+            c.Push(c.Rax);
+            c.Ret();
+            c.Mov(c.Rbx, (ulong) traceLogAddress);
+            c.Mov(Memory.Word(c.Rbx), c.Eax);
+
             // reserve space for instruction counter, the 01-08 is just so AsmJit doesn't shorten the instruction
             // we overwrite the value to 0 later on
             c.Mov(c.Rax, (ulong) 0x0102030405060708);
-            var smcLastRipJit = GetAsmJitBytes(c).Length - addrSize;
+            var smcLastRipJit = AsmUtil.GetAsmJitBytes(c).Length - addrSize;
             c.Lea(c1.Rax, Memory.QWord(CodeContext.Rip, -7 - addrSize));
             c.Mov(c.Rcx, Memory.QWord(c.Rax));
             c.Inc(c.Rcx);
@@ -180,7 +203,7 @@ namespace Program {
             c.Ret((ulong) 8);
 
             // overwrite some pieces of the code with values computed later on
-            var codeSiteCodeJit = GetAsmJitBytes(c);
+            var codeSiteCodeJit = AsmUtil.GetAsmJitBytes(c);
             for (var j = 0; j < 8; j++) {
                 codeSiteCodeJit[smcLastRipJit + j] = 0;
             }
@@ -216,21 +239,13 @@ namespace Program {
             DebugProcessUtils.WriteBytes(process, (ulong) asmSizesAddress, asmSizes);
             DebugProcessUtils.WriteBytes(process, (ulong) injectedCodeAddress, codeSiteCodeJit);
             DebugProcessUtils.WriteBytes(process, patchSite, patchSiteCodeJit);
-        }
 
-        private static byte[] GetAsmJitBytes(CodeContext<Action> c) {
-            IntPtr patchSiteCodeJitRaw;
-            int patchSiteCodeJitSize;
-            c.Compile(out patchSiteCodeJitRaw, out patchSiteCodeJitSize);
-            var patchSiteCodeJitBytes = new byte[patchSiteCodeJitSize];
-            Marshal.Copy(patchSiteCodeJitRaw, patchSiteCodeJitBytes, 0, patchSiteCodeJitSize);
-            return patchSiteCodeJitBytes;
+            return traceState;
         }
 
         public class OldState {
             public Win32Imports.ContextX64 OldContext;
             public Instruction OldInstruction;
         }
-
     }
 }

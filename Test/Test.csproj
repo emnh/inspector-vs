@@ -57,6 +57,10 @@
     <RunPostBuildEvent>Always</RunPostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="AsmJit, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\lib\AsmJit.dll</HintPath>
+    </Reference>
     <Reference Include="diStorm, Version=1.0.0.0, Culture=neutral, processorArchitecture=AMD64">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\lib\diStorm.dll</HintPath>
@@ -76,6 +80,11 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SharpDisasmRegisterToAsmJit.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>SharpDisasmRegisterToAsmJit.tt</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
@@ -85,6 +94,15 @@
       <Project>{b3e807f2-068a-4398-91e8-a493d48e406b}</Project>
       <Name>Program</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="SharpDisasmRegisterToAsmJit.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>SharpDisasmRegisterToAsmJit.cs</LastGenOutput>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>

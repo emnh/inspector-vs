@@ -156,7 +156,7 @@ namespace Program {
         }
 
         public void DumpDebug() {
-            using (System.IO.StreamWriter logFile = new System.IO.StreamWriter(@"C:\dev\imports.txt")) {
+            using (System.IO.StreamWriter logFile = new System.IO.StreamWriter(Specifics.ImportsDump)) {
                 foreach (var address in _addresses) {
                     logFile.WriteLine($"{address:X}: {_addressToFunction[address]}");
                 }

@@ -11,7 +11,8 @@ int main()
 		for (int i = 0; i < 1e8; i++) {
 			s += i;
 		}
-		printf("hello: %llx\n", s);
+		
+		printf("hello: %x %llx\n", GetCurrentThreadId(), s);
 	}
     return 0;
 }

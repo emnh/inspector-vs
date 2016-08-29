@@ -1,7 +1,13 @@
-﻿using System.IO;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 
 namespace Program {
     class MemProgram {
+
+        
 
         public static void Main() {
             var process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
@@ -10,17 +16,36 @@ namespace Program {
 
                 ImportResolver ir = new ImportResolver(process);
 
-                //MemScan.MemModuleScan(process, ir);
+                ir.DumpDebug();
 
-                MemScan.MemMain(process, ir, true);
+                var matches = MemScan.LookForByteArray(process, ir, Specifics.StartAddressBytes);
+                foreach (var match in matches) {
+                    Console.WriteLine($"byte array match at: 0x{match:X}");
+                }
+                if (matches.Count != 1) {
+                    return;
+                }
 
-                var patchSite = Specifics.GetPatchSite(ir);
+                MemScan.MemModuleScan(process, ir);
 
-                var asmSizes = File.ReadAllBytes(Specifics.ReadAsmSizesDumpFileName);
+                // TraceMain(process, ir, matches, logger);
+            }
+        }
 
-                logger.WriteLine($"patch site: {patchSite:X}");
-                SimpleMemTracer.TraceIt(process, patchSite, logger, false, 
-                    (x, y, z) => AdvancedMemTracer.InstallTracer(x, y, z, asmSizes));
+        private static void TraceMain(Process process, ImportResolver ir, List<ulong> matches, Logger logger) {
+            MemScan.MemMain(process, ir, true);
+
+            var patchSite = matches.First();
+
+            var asmSizes = File.ReadAllBytes(Specifics.ReadAsmSizesDumpFileName);
+
+            logger.WriteLine($"patch site: {patchSite:X}");
+            AdvancedMemTracer.TraceState traceState = null;
+            SimpleMemTracer.TraceIt(process, patchSite, logger, false,
+                (x, y, z) => { traceState = AdvancedMemTracer.InstallTracer(x, y, z, asmSizes, ir); });
+            if (traceState != null) {
+                var threadId = BitConverter.ToUInt32(DebugProcessUtils.ReadBytes(process, traceState.TraceLogAddress, 4), 0);
+                Console.WriteLine($"thread id: {threadId:X}");
             }
         }
     }

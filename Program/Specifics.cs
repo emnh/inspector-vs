@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 
 namespace Program {
@@ -16,8 +17,12 @@ namespace Program {
             new ImportResolver.RelativeAddress()
             {
                 ModuleName = TraceModuleName,
-                AddressOffset = (0x7FF6222D17C0 - 0x7FF6222C0000)
+                //AddressOffset = (0x7FF6222D17C0 - 0x7FF6222C0000)
+                AddressOffset =  0x00007FF783CE17F6 - 0x7FF6222C0000
             };
+        public static byte[] StartAddressBytes = {
+            0x8B, 0x45, 0x24, 0xFF, 0xC0
+        };
 #else
         // public const ulong startAddress = 0x7FF762EE437C;
         public static ImportResolver.RelativeAddress StartAddress =
@@ -28,13 +33,6 @@ namespace Program {
             };
 #endif
 
-        public static ulong GetPatchSite(ImportResolver ir) {
-#if DEBUG
-                return 0x00007FF6222D17F6; // (ulong) process.MainModule.EntryPointAddress + Specifics.startAddress.addressOffset;
-#else
-            return ir.ResolveRelativeAddress(Specifics.StartAddress);
-#endif 
-        }
         public const int MainLoopDelay = 100;
         public const int LoopWaitInterval = 100;
         public const int TraceInterval = 100;
@@ -52,7 +50,10 @@ namespace Program {
         public static string AsmDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-dump.txt");
         public static string WriteAsmSizesDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-sizes-write.bin");
         public static string ReadAsmSizesDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-sizes-read.bin");
-        public static string PatchAsmDumpFileName = Path.Combine(BasePath, @"patch-asm-dump-filename.txt");
+        public static string PatchAsmDumpFileName = Path.Combine(BasePath, @"patch-asm-dump.txt");
+        public static string ImportsDump = Path.Combine(BasePath, @"imports.txt");
+        public static string WriteAsmBranchDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-branches-write.bin");
+        public static string ReadAsmBranchDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-branches-read.bin");
 
         static Specifics() {
             Directory.CreateDirectory(BasePath);
