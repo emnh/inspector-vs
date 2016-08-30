@@ -132,8 +132,8 @@ namespace Program {
             foreach (var address in addresses) {
                 var b = DebugProcessUtils.ReadByte(CurrentProcess, address);
                 var overwritten = false;
-                if (b == AsmUtil.Int3) {
-                    DebugProcessUtils.WriteByte(CurrentProcess, address, AsmUtil.Nop);
+                if (b == AssemblyUtil.Int3) {
+                    DebugProcessUtils.WriteByte(CurrentProcess, address, AssemblyUtil.Nop);
                     overwritten = true;
                 }
                 LoggerInstance.WriteLine($"checking int3 at: 0x{address:X}, overwritten: {overwritten}");
@@ -183,10 +183,10 @@ namespace Program {
             LoggerInstance.WriteLine($"installing breakpoint at {startAddress:X}");
 
             if (BreakPoints[startAddress].OriginalCode == null) {
-                byte[] mem = DebugProcessUtils.ReadBytes(CurrentProcess, startAddress, AsmUtil.InfiniteLoop.Length);
+                byte[] mem = DebugProcessUtils.ReadBytes(CurrentProcess, startAddress, AssemblyUtil.InfiniteLoop.Length);
                 BreakPoints[startAddress].OriginalCode = mem;
             }
-            DebugProcessUtils.WriteBytes(CurrentProcess, startAddress, AsmUtil.InfiniteLoop);
+            DebugProcessUtils.WriteBytes(CurrentProcess, startAddress, AssemblyUtil.InfiniteLoop);
 
             BreakPoints[startAddress].IsSoftware = true;
             BreakPoints[startAddress].IsActive = true;
@@ -195,8 +195,8 @@ namespace Program {
         private void UninstallBreakPoint(ulong address) {
             if (BreakPoints[address].IsActive) {
                 if (BreakPoints[address].IsSoftware) {
-                    byte[] mem = DebugProcessUtils.ReadBytes(CurrentProcess, address, AsmUtil.InfiniteLoop.Length);
-                    if (mem[0] == AsmUtil.InfiniteLoop[0] && mem[1] == AsmUtil.InfiniteLoop[1]) {
+                    byte[] mem = DebugProcessUtils.ReadBytes(CurrentProcess, address, AssemblyUtil.InfiniteLoop.Length);
+                    if (mem[0] == AssemblyUtil.InfiniteLoop[0] && mem[1] == AssemblyUtil.InfiniteLoop[1]) {
                         LoggerInstance.WriteLine($"{nameof(UninstallBreakPoint)}: restoring inf-jmp with original code at 0x{address:X}");
                         DebugProcessUtils.WriteBytes(CurrentProcess, address, BreakPoints[address].OriginalCode);
                     }
@@ -390,7 +390,7 @@ namespace Program {
                                 //setTrace((uint) evt.dwThreadId, false);
                                 if (BreakPoints[breakAddress].Description.Equals(CloseHandleDescription)) {
                                     LoggerInstance.WriteLine("CloseHandle hit");
-                                    LoggerInstance.WriteLine("Registers:" + AsmUtil.FormatContext(context));
+                                    LoggerInstance.WriteLine("Registers:" + AssemblyUtil.FormatContext(context));
                                 } else {
                                 }
                                 done = BreakPointCallBack(this, evt.dwThreadId, context, trace).StepOver;
@@ -423,9 +423,9 @@ namespace Program {
                             string asm = "N/A";
                             string asm2 = "N/A";
                             try {
-                                instr = AsmUtil.Disassemble(CurrentProcess, exceptionAddress);
-                                asm = AsmUtil.FormatInstruction(AsmUtil.Disassemble(CurrentProcess, breakAddress));
-                                asm2 = AsmUtil.FormatInstruction(AsmUtil.Disassemble(CurrentProcess, exceptionAddress));
+                                instr = AssemblyUtil.Disassemble(CurrentProcess, exceptionAddress);
+                                asm = AssemblyUtil.FormatInstruction(AssemblyUtil.Disassemble(CurrentProcess, breakAddress));
+                                asm2 = AssemblyUtil.FormatInstruction(AssemblyUtil.Disassemble(CurrentProcess, exceptionAddress));
                             }
                             catch (Exception)
                             {
@@ -436,17 +436,17 @@ namespace Program {
 
                             switch (code) {
                                 case Win32Imports.ExceptionCodeStatus.ExceptionSingleStep:
-                                    asm = AsmUtil.FormatInstruction(AsmUtil.Disassemble(CurrentProcess, breakAddress));
+                                    asm = AssemblyUtil.FormatInstruction(AssemblyUtil.Disassemble(CurrentProcess, breakAddress));
                                     LoggerInstance.WriteLine($"single step at {breakAddress:X}, evtCount: {CurrentInfo.EventCount}, asm: {asm}");
                                     continueCode = HasBreakPoint(breakAddress) ? Win32Imports.DbgContinue : Win32Imports.DbgExceptionNotHandled;
                                     break;
                                 case Win32Imports.ExceptionCodeStatus.ExceptionBreakpoint:        
-                                    asm = AsmUtil.FormatInstruction(instr);
+                                    asm = AssemblyUtil.FormatInstruction(instr);
                                     //if (instr.Mnemonic.Equals("INT") && instr.Operands.Equals("3")) {
                                     if (instr != null && instr.Mnemonic == ud_mnemonic_code.UD_Iint3) {
                                         LoggerInstance.WriteLine($"int3 breakpoint at: {exceptionAddress:X}, evtCount: {CurrentInfo.EventCount}, asm: {asm}");
                                         LoggerInstance.WriteLine("overwriting with NOP");
-                                        DebugProcessUtils.WriteByte(CurrentProcess, exceptionAddress, AsmUtil.Nop);
+                                        DebugProcessUtils.WriteByte(CurrentProcess, exceptionAddress, AssemblyUtil.Nop);
                                         continueCode = Win32Imports.DbgContinue;
                                     } else {
                                         msg = $"breakpoint, chance: { evt.Exception.dwFirstChance}";
@@ -459,7 +459,7 @@ namespace Program {
                                     msg += $", at: 0x{breakAddress:X}, exc at: 0x{exceptionAddress:X}, asm: {asm}, exc asm: {asm2}";
                                     LoggerInstance.WriteLine(msg);
                                     LoggerInstance.WriteLine(msg);
-                                    AsmUtil.LogStackTrace(_importResolver, LoggerInstance, CurrentProcess, context.Rsp);
+                                    AssemblyUtil.LogStackTrace(_importResolver, LoggerInstance, CurrentProcess, context.Rsp);
                                     continueCode = Win32Imports.DbgExceptionNotHandled;
                                     break;
                                 case Win32Imports.ExceptionCodeStatus.ExceptionInvalidOperation:
@@ -468,10 +468,10 @@ namespace Program {
                                     // anti-anti-debug measure
                                     if (instr != null && instr.Mnemonic == ud_mnemonic_code.UD_Iud2) {
                                         LoggerInstance.WriteLine("overwriting UD2 with NOP");
-                                        DebugProcessUtils.WriteBytes(CurrentProcess, exceptionAddress, new[] { AsmUtil.Nop, AsmUtil.Nop });
+                                        DebugProcessUtils.WriteBytes(CurrentProcess, exceptionAddress, new[] { AssemblyUtil.Nop, AssemblyUtil.Nop });
                                     }
                                     // anti-anti-debug measure
-                                    var instr2 = AsmUtil.Disassemble(CurrentProcess, exceptionAddress - 1);
+                                    var instr2 = AssemblyUtil.Disassemble(CurrentProcess, exceptionAddress - 1);
                                     if (instr2.Mnemonic == ud_mnemonic_code.UD_Iint && instr2.Operands[0].Value == 0x2D) {
                                         ulong rip = context.Rip - 1;
                                         setRip((uint) evt.dwThreadId, false, rip);

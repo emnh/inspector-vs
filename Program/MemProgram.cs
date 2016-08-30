@@ -39,9 +39,9 @@ namespace Program {
             var branches = File.ReadAllBytes(Specifics.ReadAsmBranchDumpFileName);
 
             logger.WriteLine($"patch site: {patchSite:X}");
-            AdvancedMemTracer2.TraceState traceState = null;
+            EmulatedMemTracer.TraceState traceState = null;
             SimpleMemTracer.TraceIt(process, patchSite, logger, false,
-                (x, y, z) => { traceState = AdvancedMemTracer2.InstallTracer(x, y, z, ir, asmSizes, branches); });
+                (x, y, z) => { traceState = EmulatedMemTracer.InstallTracer(x, y, z, ir, asmSizes, branches); });
             if (traceState != null) {
                 // TODO: fix race
                 var threadId = BitConverter.ToUInt32(DebugProcessUtils.ReadBytes(process, traceState.TraceLogAddress, 4), 0);
