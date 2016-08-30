@@ -110,7 +110,7 @@
       <Project>{a8a0fe26-c302-449c-a050-870a814ce478}</Project>
       <Name>AsmJitAssembleLib</Name>
     </ProjectReference>
-    <ProjectReference Include="..\AsmJit\AsmJit.csproj">
+    <ProjectReference Include="..\AsmJit\AsmJit\AsmJit.csproj">
       <Project>{fc415f40-fdee-463d-b8a9-84715fcd2d9d}</Project>
       <Name>AsmJit</Name>
     </ProjectReference>

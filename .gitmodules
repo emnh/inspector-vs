@@ -1,0 +1,3 @@
+[submodule "AsmJit"]
+	path = AsmJit
+	url = https://github.com/emnh/AsmJit
