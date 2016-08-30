@@ -4,18 +4,16 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{C66B3CE7-9139-4954-9FB6-B0166AF19A87}</ProjectGuid>
-    <OutputType>Exe</OutputType>
+    <ProjectGuid>{A8A0FE26-C302-449C-A050-870A814CE478}</ProjectGuid>
+    <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Test</RootNamespace>
-    <AssemblyName>Test</AssemblyName>
+    <RootNamespace>AsmJitAssembleLib</RootNamespace>
+    <AssemblyName>AsmJitAssembleLib</AssemblyName>
     <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -25,7 +23,6 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
@@ -41,7 +38,6 @@
     <PlatformTarget>x64</PlatformTarget>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <OutputPath>bin\x64\Release\</OutputPath>
@@ -51,16 +47,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <Prefer32Bit>true</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup>
-    <RunPostBuildEvent>Always</RunPostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="diStorm, Version=1.0.0.0, Culture=neutral, processorArchitecture=AMD64">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\lib\diStorm.dll</HintPath>
-    </Reference>
     <Reference Include="SharpDisasm">
       <HintPath>..\lib\SharpDisasm.dll</HintPath>
     </Reference>
@@ -74,53 +62,23 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Program.cs" />
+    <Compile Include="AsmJitAssembler.cs" />
+    <Compile Include="AssembleException.cs" />
+    <Compile Include="MaybeOption.cs" />
+    <Compile Include="MaybeRegister.cs" />
+    <Compile Include="OperandToAsmJit.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SharpDisasmRegisterToAsmJit.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>SharpDisasmRegisterToAsmJit.tt</DependentUpon>
-    </Compile>
+    <Compile Include="SdToAsm.cs" />
+    <Compile Include="SharpDisasmRegisterToAsmJit.cs" />
+    <Compile Include="UlongOrLong.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\AsmJitAssembleLib\AsmJitAssembleLib.csproj">
-      <Project>{A8A0FE26-C302-449C-A050-870A814CE478}</Project>
-      <Name>AsmJitAssembleLib</Name>
-    </ProjectReference>
     <ProjectReference Include="..\AsmJit\AsmJit.csproj">
       <Project>{fc415f40-fdee-463d-b8a9-84715fcd2d9d}</Project>
       <Name>AsmJit</Name>
     </ProjectReference>
-    <ProjectReference Include="..\CodeGenLib\CodeGenLib.csproj">
-      <Project>{65cdee3d-7f82-47ff-9ca7-a68f04680833}</Project>
-      <Name>CodeGenLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\Program\Program.csproj">
-      <Project>{b3e807f2-068a-4398-91e8-a493d48e406b}</Project>
-      <Name>Program</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="SharpDisasmRegisterToAsmJit.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>SharpDisasmRegisterToAsmJit.cs</LastGenOutput>
-    </Content>
-  </ItemGroup>
-  <ItemGroup>
-    <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <PropertyGroup>
-    <PostBuildEvent>copy $(SolutionDir)x64\Debug\ContextLib.dll $(ProjectDir)$(OutDir)
-copy $(SolutionDir)\lib\distorm3.dll $(ProjectDir)$(OutDir)</PostBuildEvent>
-  </PropertyGroup>
-  <PropertyGroup>
-    <PreBuildEvent>
-    </PreBuildEvent>
-  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

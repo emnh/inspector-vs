@@ -59,9 +59,6 @@
     <RunPostBuildEvent>Always</RunPostBuildEvent>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="AsmJit">
-      <HintPath>..\lib\AsmJit.dll</HintPath>
-    </Reference>
     <Reference Include="diStorm">
       <HintPath>..\lib\diStorm.dll</HintPath>
     </Reference>
@@ -81,7 +78,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ASMUtil.cs" />
+    <Compile Include="EmulatedMemTracer.cs" />
+    <Compile Include="AssemblyUtil.cs" />
     <Compile Include="ContextManager.cs" />
     <Compile Include="DebugAssertControl.cs" />
     <Compile Include="DebugProcessUtils.cs" />
@@ -96,7 +94,6 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SaveAndRestore.cs" />
     <Compile Include="AdvancedMemTracer.cs" />
-    <Compile Include="SharpDisasmRegisterToAsmJit.cs" />
     <Compile Include="Specifics.cs" />
     <Compile Include="ThreadState.cs" />
     <Compile Include="SimpleMemTracer.cs" />
@@ -107,6 +104,16 @@
   </ItemGroup>
   <ItemGroup>
     <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AsmJitAssembleLib\AsmJitAssembleLib.csproj">
+      <Project>{a8a0fe26-c302-449c-a050-870a814ce478}</Project>
+      <Name>AsmJitAssembleLib</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\AsmJit\AsmJit.csproj">
+      <Project>{fc415f40-fdee-463d-b8a9-84715fcd2d9d}</Project>
+      <Name>AsmJit</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>

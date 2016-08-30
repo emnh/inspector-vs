@@ -28,19 +28,19 @@
 <#@ output extension=".cs" #>
 
 using AsmJit.AssemblerContext;
-using AsmJit.Common.Operands;
 using SharpDisasm.Udis86;
-using Program;
+using AsmJitAssembleLib;
 
 namespace Test {
-	public class SharpDisasmRegisterToAsmJitTT {
+	public class SharpDisasmRegisterToAsmJitTt {
 		public static MaybeRegister SharpDisasmRegisterToAsmJitRegister(CodeContext context, ud_type type) {
 			var retVal = new MaybeRegister();
+			switch (type) {
 			<#
 				foreach (var value in values) {
 					if (dict.ContainsKey(value.ToString())) {
 				#> 
-				switch (type) {
+				
 					case ud_type.<#= value #>:
 						retVal = new MaybeRegister() {
 							Present = true,
@@ -48,12 +48,12 @@ namespace Test {
 							Register = context.<#= dict[value.ToString()] #>
 						};
 						break;
-				}	
+				
 				<#
 					}
 				}
-            
 			#>
+			}	
             return retVal;
         }
 	}

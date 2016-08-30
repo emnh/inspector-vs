@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using AsmJit.AssemblerContext;
-using AsmJit.Common;
 using AsmJit.Common.Operands;
 using Program;
+using SharpDisasm;
 
 namespace Test {
 
@@ -18,17 +19,42 @@ namespace Test {
             
         }
 
+        [HandleProcessCorruptedStateExceptions]
         static void Main() {
 
-            Process process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
+            // Process process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
 
             var c = Assembler.CreateContext<Action>();
-            c.Sub(c.Rcx, 1);
-            c.Compile();
-            var bs = AssemblyUtil.GetAsmJitBytes(c);
+            //c.Sub(c.Rcx, 1);
+            c.Jae(0);
+            c.Call((uint) 0x100);
+            c.Jmp(c.Rax);
+            c.Jmp(Memory.QWord(c.Rax));
+            c.Fadd(c.Fp0, c.Fp1);
+            c.Mov(c.Rax, (Immediate) 0x0102030405060708);
+            c.Mov(c.Rax, 0x0102030405060708);
+            c.Mov(c.Rax, (ulong)0x0102030405060708);
+            c.Call(Memory.QWord(CodeContext.Rip, 10));
+            //c.Call((Immediate) 0);
+            //c.Nop();
+            var length = AssemblyUtil.GetAsmJitBytes(c).Length;
+            Console.WriteLine($"length: 0x{length:X}");
+            //c.Call(0x0102030405060708);
+            //c.Call(new IntPtr(0x0102030405060708));
+            //c.Compile();
+            byte[] bs = AssemblyUtil.GetAsmJitBytes(c);
+            
+            //bs = new byte[] { 0xEB, 0xFF - 0xA };
             Console.WriteLine($"bytes: {AssemblyUtil.BytesToHex(bs)}");
-            var asm = AssemblyUtil.Disassemble(bs.Skip(0).ToArray());
-            Console.WriteLine($"asm: {asm}");
+
+            var asms = AssemblyUtil.DisassembleMany(bs, 100);
+
+            foreach (var asm in asms) {
+                Console.WriteLine($"asm: {asm}");
+                var asm2 = AssemblyUtil.Reassemble(asm);
+                Console.WriteLine($"asm: {asm}, asm2: {asm2}");
+                // PrintAsmDetails(asm);
+            }
 
             // TestFormatContext(process);
 
@@ -51,6 +77,17 @@ namespace Test {
 
             Console.WriteLine("done");
             Console.ReadKey();
+        }
+
+        private static void PrintAsmDetails(Instruction asm) {
+            Console.WriteLine($"asm PC: {asm.PC}");
+            Console.WriteLine($"asm LValSByte: {asm.Operands.First().LvalSByte}");
+            Console.WriteLine($"asm (ulong) LValSByte: {(ulong) asm.Operands.First().LvalSByte:X}");
+            Console.WriteLine($"asm PC + (ulong) LValSByte: {asm.PC + (ulong) asm.Operands.First().LvalSByte:X}");
+            ulong truncMask = 0xffffffffffffffff >> (64 - asm.opr_mode);
+            Console.WriteLine($"asm truncMask: {truncMask:X}");
+            Console.WriteLine(
+                $"asm (PC + (ulong) LValSByte) & truncMask: {(asm.PC + (ulong) asm.Operands.First().LvalSByte) & truncMask:X}");
         }
 
         private static void TestResolve(Process process) {

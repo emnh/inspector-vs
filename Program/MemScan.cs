@@ -8,7 +8,9 @@ using System.Numerics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using AsmJit.AssemblerContext;
+using AsmJitAssembleLib;
 using SharpDisasm;
+using SharpDisasm.Udis86;
 using static Program.Win32Imports;
 
 namespace Program {
@@ -147,12 +149,31 @@ namespace Program {
                                 //sw2.WriteLine($"{i:X}: {instruction} OPS: {ops}, OPS2: {ops2}");
                                 // sw2.WriteLine($"PREWRITE {i:X}: {instruction}");
                                 var maybeJump = AssemblyUtil.IsBranch(instruction);
+
+
+                                if (instruction.Mnemonic != ud_mnemonic_code.UD_Iinvalid) {
+                                    Instruction reInstruction = null;
+                                    try {
+                                        reInstruction = AssemblyUtil.Reassemble(instruction);
+                                    } catch (AssembleException) {
+                                        var t = instruction.Operands.First().Type;
+                                        Console.WriteLine($"t: {t}");
+                                        throw;
+                                    }
+                                    
+                                    sw2.WriteLine(
+                                        $"{i:X}: {instruction}, {reInstruction}, eq: {instruction.ToString().Equals(reInstruction.ToString())}");
+                                } else {
+                                    sw2.WriteLine($"{i:X}: {instruction}");
+                                }
+                                
+
                                 if (maybeJump.Present) {
                                     List<Instruction> asmSame = new List<Instruction>();
 
                                     WriteBranchData(maybeJump, instruction, paddedCbytes, asmSame, sw2);
 
-                                    sw2.WriteLine($"{i:X}: {instruction}");
+                                    //sw2.WriteLine($"{i:X}: {instruction}");
                                     foreach (var instr in asmSame) {
                                         var hex =
                                             AssemblyUtil.BytesToHex(
@@ -164,7 +185,7 @@ namespace Program {
                                     sw2.WriteLine("");
                                 } else {
                                     for (var j = 0; j < paddedCbytes.Length; j++) {
-                                        paddedCbytes[j] = 0;
+                                        paddedCbytes[j] = 0x90;
                                     }
                                 }
                             }

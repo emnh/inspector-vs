@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using AsmJit.AssemblerContext;
 using AsmJit.Common.Operands;
+using AsmJitAssembleLib;
 using diStorm;
 using SharpDisasm;
 using SharpDisasm.Udis86;
@@ -17,26 +18,6 @@ namespace Program {
     public class MaybeUdType {
         public bool Present;
         public ud_type Type;
-    }
-
-    public class UlongOrLong {
-        public bool Unsigned;
-        public ulong Value;
-    }
-
-    public enum RegisterType {
-        RipRegister,
-        GpRegister,
-        XmmRegister,
-        YmmRegister,
-        SegRegister,
-        MmRegister
-    }
-
-    public class MaybeRegister {
-        public bool Present;
-        public RegisterType Type;
-        public object Register;
     }
 
     public enum BranchInstruction : byte {
@@ -69,9 +50,13 @@ namespace Program {
 
     public class MaybeJump {
         public bool Present;
+        // if IsRelative is true, we should add target to instruction pointer
+        public bool IsRelative;
         public BranchInstruction Branch;
         public Action<CodeContext, Label> AddBranchOfSameType;
         public Action<CodeContext, GpRegister> AddInstrToGetBranchTarget;
+        public Action<CodeContext, GpRegister> ApplyStackModifierBefore;
+        public Action<CodeContext, GpRegister> ApplyStackModifierAfter;
     }
 
     public class DecodeException : Exception {
@@ -94,11 +79,19 @@ namespace Program {
         // 5: jmp afterMov
         // 10: mov rax, imm64
         // afterMov:
-        public const int MaxBranchBytes = 32;
+        public const int MaxBranchBytes = 31;
 
         static AssemblyUtil() {
             CreateFormatContext();
             CreateFormatContextDiff();
+        }
+
+        public static Instruction Reassemble(Instruction instruction) {
+            var c = Assembler.CreateContext<Action>();
+            AsmJitAssembler.AsmJitAssemble(c, instruction);
+            var bs = AssemblyUtil.GetAsmJitBytes(c);
+            var newInstruction = AssemblyUtil.Disassemble(bs);
+            return newInstruction;
         }
 
         private static void CreateFormatContext() {
@@ -256,46 +249,7 @@ namespace Program {
             FormatContextDiff = expr.Compile();
         }
 
-        public static UlongOrLong GetDisplacement(Instruction instruction, SharpDisasm.Operand op) {
-            var retVal = new UlongOrLong();
-            if (op.Base == ud_type.UD_NONE && op.Index == ud_type.UD_NONE) {
-                ulong v;
-                Debug.Assert(op.Scale == 0 && op.Offset != 8);
-                /* unsigned mem-offset */
-                switch (op.Offset) {
-                    case 16: v = op.LvalUWord; break;
-                    case 32: v = op.LvalUDWord; break;
-                    case 64: v = op.LvalUQWord; break;
-                    default: throw new Exception("invalid offset");
-                }
-                retVal.Unsigned = true;
-                retVal.Value = v;
-            }
-            else {
-                long v;
-                Debug.Assert(op.Offset != 64);
-                switch (op.Offset) {
-                    case 8: v = op.LvalSByte; break;
-                    case 16: v = op.LvalSWord; break;
-                    case 32: v = op.LvalSDWord; break;
-                    default: throw new Exception("invalid offset");
-                }
-                retVal.Unsigned = false;
-                retVal.Value = (ulong) v;
-            }
-            return retVal;
-        }
-
-        public static MaybeRegister SdToAsmJit(CodeContext context, ud_type operandReg) {
-            if (operandReg == ud_type.UD_R_RIP) {
-                return new MaybeRegister() {
-                    Present = true,
-                    Type = RegisterType.RipRegister,
-                    Register = CodeContext.Rip
-                };
-            }
-            return SharpDisasmRegisterToAsmJit.SharpDisasmRegisterToAsmJitRegister(context, operandReg);
-        }
+        
 
         public static void CreateLea(CodeContext context, GpRegister target, Instruction instruction) {
             var operand = instruction.Operands.First();
@@ -304,7 +258,7 @@ namespace Program {
             bool baseRipRegister = false;
             MaybeRegister maybeIndexRegister = null;
             if (operand.Base != ud_type.UD_NONE) {
-                var maybeBaseRegister = SdToAsmJit(context, operand.Base);
+                var maybeBaseRegister = SdToAsm.SdToAsmJit(context, operand.Base);
                 if (!maybeBaseRegister.Present) {
                     throw new Exception($"could not map base register for: {instruction}");
                 }
@@ -322,13 +276,13 @@ namespace Program {
             }
 
             if (operand.Index != ud_type.UD_NONE) {
-                maybeIndexRegister = SdToAsmJit(context, operand.Index);
+                maybeIndexRegister = SdToAsm.SdToAsmJit(context, operand.Index);
                 if (!maybeIndexRegister.Present) {
                     throw new Exception("could not map base register");
                 }
             }
 
-            var displacement = GetDisplacement(instruction, operand);
+            var displacement = SdToAsm.GetDisplacement(instruction, operand);
             var displacementIntPtr = (IntPtr)displacement.Value;
             var scale = 0;
             switch (operand.Scale) {
@@ -348,22 +302,24 @@ namespace Program {
             }
 
             if (baseRipRegister) {
+                // in our emulator we are going to keep our RIP in target (RAX)
+                baseRegister = target;
                 if (maybeIndexRegister == null) {
                     switch (operand.Size) {
                         case 8:
-                            memoryReference = Memory.Byte(CodeContext.Rip, (int) displacement.Value);
+                            memoryReference = Memory.Byte(baseRegister, (int) displacement.Value);
                             break;
                         case 16:
-                            memoryReference = Memory.Word(CodeContext.Rip, (int) displacement.Value);
+                            memoryReference = Memory.Word(baseRegister, (int) displacement.Value);
                             break;
                         case 32:
-                            memoryReference = Memory.DWord(CodeContext.Rip, (int) displacement.Value);
+                            memoryReference = Memory.DWord(baseRegister, (int) displacement.Value);
                             break;
                         case 64:
-                            memoryReference = Memory.QWord(CodeContext.Rip, (int) displacement.Value);
+                            memoryReference = Memory.QWord(baseRegister, (int) displacement.Value);
                             break;
                         case 80:
-                            memoryReference = Memory.TWord(CodeContext.Rip, (int) displacement.Value);
+                            memoryReference = Memory.TWord(baseRegister, (int) displacement.Value);
                             break;
                         default:
                             throw new Exception("unsupported operand size");
@@ -612,6 +568,7 @@ namespace Program {
                     retVal.Present = true;
                     retVal.Branch = BranchInstruction.Call;
                     retVal.AddBranchOfSameType = (context, label) => context.Jmp(label);
+                    retVal.ApplyStackModifierBefore = (context, target) => context.Push(target);
                     break;
                 case ud_mnemonic_code.UD_Iret:
                     retVal.Present = true;
@@ -620,6 +577,7 @@ namespace Program {
                     retVal.AddInstrToGetBranchTarget = (context, target) => {
                         context.Mov(target, Memory.QWord(context.Rsp));
                     };
+                    retVal.ApplyStackModifierAfter = (context, target) => context.Pop(target);
                     break;
 
                 // CONDITIONAL BRANCHES
@@ -778,7 +736,7 @@ namespace Program {
             var operand = instruction.Operands.First();
             switch (operand.Type) {
                 case ud_type.UD_OP_REG:
-                    var maybeRegister = SdToAsmJit(context, operand.Base);
+                    var maybeRegister = SdToAsm.SdToAsmJit(context, operand.Base);
                     if (!maybeRegister.Present) {
                         throw new Exception("could not map register");
                     }
@@ -799,6 +757,7 @@ namespace Program {
                 case ud_type.UD_OP_JIMM:
                     ulong immediate;
                     ulong truncMask = 0xffffffffffffffff >> (64 - instruction.opr_mode);
+                    Console.WriteLine($"opr_mode: {instruction.opr_mode}");
                     switch (operand.Size) {
                         case 8:
                             immediate = (instruction.PC + (ulong) operand.LvalSByte) & truncMask;
@@ -812,7 +771,8 @@ namespace Program {
                         default:
                             throw new Exception("invalid relative offset size.");
                     }
-                    context.Lea(target, Memory.QWord(CodeContext.Rip, (int) immediate));
+                    // in our emulator we are going to keep RIP in target (RAX)
+                    context.Lea(target, Memory.QWord(target, (int) immediate));
                     break;
                 default:
                     throw new Exception("unsupported operand type");
