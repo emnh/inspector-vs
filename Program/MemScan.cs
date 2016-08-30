@@ -8,6 +8,7 @@ using System.Numerics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using AsmJit.AssemblerContext;
+using SharpDisasm;
 using static Program.Win32Imports;
 
 namespace Program {
@@ -106,7 +107,6 @@ namespace Program {
             return totalSize2;
         }
 
-        [HandleProcessCorruptedStateExceptions]
         private static void DumpAssembly(byte[] traceMemory) {
             BigInteger oldProgress = 0;
             var subRange = new byte[AsmUtil.MaxInstructionBytes];
@@ -115,116 +115,122 @@ namespace Program {
                                   asmBranchesFs = new FileStream(Specifics.WriteAsmBranchDumpFileName, FileMode.Create)) {
                     using (BinaryWriter asmSizesBw = new BinaryWriter(asmSizesFs),
                         asmBranchesBw = new BinaryWriter(asmBranchesFs)) {
-                        using (new DebugAssertControl((x) => {
-                            // ReSharper disable once AccessToDisposedClosure
-                            sw2.WriteLine("SharpDisasm failed to decode");
-                        })) {
-                            for (ulong i = 0; i < (ulong)traceMemory.Length; i++) {
-                                Array.Copy(traceMemory, (int)i, subRange, 0,
-                                    (int)Math.Min(AsmUtil.MaxInstructionBytes, (ulong)traceMemory.Length - i));
-                                var progress = new BigInteger(i) * 100 / traceMemory.Length;
-                                //Console.WriteLine($"progress: {progress}");
+                        for (ulong i = 0; i < (ulong)traceMemory.Length; i++) {
+                            Array.Copy(traceMemory, (int)i, subRange, 0,
+                                (int)Math.Min(AsmUtil.MaxInstructionBytes, (ulong)traceMemory.Length - i));
+                            var progress = new BigInteger(i) * 100 / traceMemory.Length;
+                            //Console.WriteLine($"progress: {progress}");
 
-                                if (progress != oldProgress) {
-                                    Console.WriteLine($"decoding asm, progress: {progress}");
-                                }
-                                oldProgress = progress;
-
-                                byte instructionLength = 0;
-
-                                SharpDisasm.ArchitectureMode mode = SharpDisasm.ArchitectureMode.x86_64;
-                                SharpDisasm.Disassembler.Translator.IncludeAddress = false;
-                                SharpDisasm.Disassembler.Translator.IncludeBinary = false;
-
-                                var disasm = new SharpDisasm.Disassembler(subRange, mode, 0, true);
-                                try {
-                                    foreach (var instruction in disasm.Disassemble()) {
-                                        instructionLength = (byte)instruction.Length;
-                                        //var ops = string.Join(",", instruction.Operands.Select(x => x.Index));
-                                        //var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
-                                        //sw2.WriteLine($"{i:X}: {instruction} OPS: {ops}, OPS2: {ops2}");
-                                        // sw2.WriteLine($"PREWRITE {i:X}: {instruction}");
-                                        var maybeJump = AsmUtil.IsBranch(instruction);
-                                        if (maybeJump.Present) {
-                                            string asmSame = "";
-                                            if (maybeJump.AddBranchOfSameType != null) {
-                                                byte[] cbytes = null;
-
-                                                // asmjit fails randomly with memory errors, so give it some tries
-                                                // TODO: locate their bug and submit a patch
-                                                for (var tryCount = 0; tryCount < 2; tryCount++) {
-                                                    var c = Assembler.CreateContext<Action>();
-                                                    var label = c.Label();
-                                                    c.Bind(label);
-                                                    maybeJump.AddBranchOfSameType(c, label);
-
-                                                    try {
-                                                        cbytes = AsmUtil.GetAsmJitBytes(c);
-                                                        break;
-                                                    } catch (Exception) {
-                                                        //throw new Exception($"failed to handle: {instruction}");
-                                                        asmSame = $"failed to get bytes 1 on try {tryCount}";
-                                                    }
-                                                }
-                                                
-                                                if (cbytes != null) {
-                                                    //byte[] paddedCbytes = new byte[AsmUtil.MaxBranchBytes];
-                                                    //Debug.Assert(cbytes.Length <= paddedCbytes.Length);
-                                                    //asmBranchesBw.Write();
-
-                                                    try {
-                                                        asmSame = AsmUtil.Disassemble(cbytes).ToString();
-                                                    }
-                                                    catch (DecodeException) {
-                                                        asmSame = "failed: " + AsmUtil.BytesToHex(cbytes);
-                                                    }
-                                                } else {
-                                                    throw new Exception("failed to get bytes");
-                                                }
-                                            }
-                                            string asmTarget = "";
-                                            if (maybeJump.AddInstrToGetBranchTarget != null) {
-
-                                                byte[] cbytes = null;
-
-                                                // asmjit fails randomly with memory errors, so give it some tries
-                                                // TODO: locate their bug and submit a patch
-                                                for (var tryCount = 0; tryCount < 2; tryCount++) {
-                                                    var c = Assembler.CreateContext<Action>();
-                                                    maybeJump.AddInstrToGetBranchTarget(c, c.Rax);
-
-                                                    try {
-                                                        cbytes = AsmUtil.GetAsmJitBytes(c);
-                                                        break;
-                                                    } catch (Exception) {
-                                                        //throw new Exception($"failed to handle: {instruction}");
-                                                        asmTarget = $"failed to get bytes 1 on try {tryCount}";
-                                                    }
-                                                }
-
-                                                if (cbytes != null) {
-                                                    try {
-                                                        asmTarget = AsmUtil.Disassemble(cbytes).ToString();
-                                                    } catch (DecodeException) {
-                                                        asmTarget = "failed: " + AsmUtil.BytesToHex(cbytes);
-                                                    }
-                                                }
-                                            }
-                                            sw2.WriteLine($"{i:X}: {instruction}, SAME: {asmSame}, TARGET: {asmTarget}");
-                                        }
-                                        break;
-                                    }
-                                } catch (IndexOutOfRangeException) {
-                                    // ignore
-                                    sw2.WriteLine("SharpDisasm: failed with IndexOutOfRangeException");
-                                } catch (DecodeException) {
-                                    // ignore
-                                    sw2.WriteLine("SharpDisasm: failed with DecodeException");
-                                }
-                                asmSizesBw.Write(instructionLength);
+                            if (progress != oldProgress) {
+                                Console.WriteLine($"decoding asm, progress: {progress}");
                             }
+                            oldProgress = progress;
+
+                            byte instructionLength = 0;
+                            byte[] paddedCbytes = new byte[AsmUtil.MaxBranchBytes];
+
+                            Instruction instruction = null;
+                            try {
+                                instruction = AsmUtil.Disassemble(subRange);
+                            } catch (IndexOutOfRangeException) {
+                                // ignore
+                                sw2.WriteLine("SharpDisasm: failed with IndexOutOfRangeException");
+                            } catch (DecodeException) {
+                                // ignore
+                                sw2.WriteLine("SharpDisasm: failed with DecodeException");
+                            }
+
+                            if (instruction != null) {
+                                instructionLength = (byte)instruction.Length;
+                                //var ops = string.Join(",", instruction.Operands.Select(x => x.Index));
+                                //var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
+                                //sw2.WriteLine($"{i:X}: {instruction} OPS: {ops}, OPS2: {ops2}");
+                                // sw2.WriteLine($"PREWRITE {i:X}: {instruction}");
+                                var maybeJump = AsmUtil.IsBranch(instruction);
+                                if (maybeJump.Present) {
+                                    List<Instruction> asmSame = new List<Instruction>();
+
+                                    WriteBranchData(maybeJump, instruction, paddedCbytes, asmSame, sw2);
+
+                                    sw2.WriteLine($"{i:X}: {instruction}");
+                                    foreach (var instr in asmSame) {
+                                        var hex =
+                                            AsmUtil.BytesToHex(
+                                                paddedCbytes.Skip((int)instr.Offset)
+                                                    .Take(instr.Length)
+                                                    .ToArray());
+                                        sw2.WriteLine($"{instr.Offset:X}: {hex} {instr}");
+                                    }
+                                    sw2.WriteLine("");
+                                } else {
+                                    for (var j = 0; j < paddedCbytes.Length; j++) {
+                                        paddedCbytes[j] = 0;
+                                    }
+                                }
+                            }
+                            asmSizesBw.Write(instructionLength);
+                            asmBranchesBw.Write(paddedCbytes);
                         }
                     }
+                }
+            }
+        }
+
+        [HandleProcessCorruptedStateExceptions]
+        private static void WriteBranchData(MaybeJump maybeJump, Instruction instruction, byte[] paddedCbytes, List<Instruction> asmSame, StreamWriter sw2) {
+            if (maybeJump.AddBranchOfSameType != null &&
+                maybeJump.AddInstrToGetBranchTarget != null) {
+                byte[] cbytes = null;
+
+                // asmjit fails randomly with memory errors, so give it some tries
+                // TODO: locate their bug and submit a patch
+                var maxTryCount = 3;
+                for (var tryCount = 0; tryCount < maxTryCount; tryCount++) {
+                    var c = Assembler.CreateContext<Action>();
+                    var label = c.Label();
+                    var finishLabel = c.Label();
+                    maybeJump.AddBranchOfSameType(c, label);
+                    c.Jmp(finishLabel);
+                    c.Bind(label);
+                    maybeJump.AddInstrToGetBranchTarget(c, c.Rax);
+                    c.Bind(finishLabel);
+
+                    try {
+                        cbytes = AsmUtil.GetAsmJitBytes(c);
+                        break;
+                    }
+                    catch (Exception) {
+                        if (tryCount + 1 == maxTryCount) {
+                            throw new Exception($"failed to handle: {instruction}");
+                        }
+                        //error = $"failed to get bytes 1 on try {tryCount}";
+                    }
+                }
+
+                if (cbytes != null) {
+                    if (cbytes.Length > paddedCbytes.Length) {
+                        throw new Exception(
+                            $"miscalculated max size: {nameof(AsmUtil.MaxBranchBytes)}: {AsmUtil.MaxBranchBytes} < {cbytes.Length}");
+                    }
+                    Array.Copy(cbytes, paddedCbytes, cbytes.Length);
+                    for (int j = cbytes.Length; j < paddedCbytes.Length; j++) {
+                        paddedCbytes[j] = AsmUtil.Nop;
+                    }
+
+                    try {
+                        foreach (var instr in AsmUtil.DisassembleMany(paddedCbytes, 100)
+                            ) {
+                            asmSame.Add(instr);
+                        }
+                    }
+                    catch (DecodeException) {
+                        sw2.WriteLine("decode failed: " + AsmUtil.BytesToHex(cbytes));
+                        throw new Exception("decode failed: " +
+                                            AsmUtil.BytesToHex(cbytes));
+                    }
+                }
+                else {
+                    throw new Exception("shouldn't happen");
                 }
             }
         }

@@ -7,8 +7,6 @@ using System.Linq;
 namespace Program {
     class MemProgram {
 
-        
-
         public static void Main() {
             var process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
 
@@ -38,12 +36,14 @@ namespace Program {
             var patchSite = matches.First();
 
             var asmSizes = File.ReadAllBytes(Specifics.ReadAsmSizesDumpFileName);
+            var branches = File.ReadAllBytes(Specifics.ReadAsmBranchDumpFileName);
 
             logger.WriteLine($"patch site: {patchSite:X}");
-            AdvancedMemTracer.TraceState traceState = null;
+            AdvancedMemTracer2.TraceState traceState = null;
             SimpleMemTracer.TraceIt(process, patchSite, logger, false,
-                (x, y, z) => { traceState = AdvancedMemTracer.InstallTracer(x, y, z, asmSizes, ir); });
+                (x, y, z) => { traceState = AdvancedMemTracer2.InstallTracer(x, y, z, ir, asmSizes, branches); });
             if (traceState != null) {
+                // TODO: fix race
                 var threadId = BitConverter.ToUInt32(DebugProcessUtils.ReadBytes(process, traceState.TraceLogAddress, 4), 0);
                 Console.WriteLine($"thread id: {threadId:X}");
             }

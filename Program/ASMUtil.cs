@@ -93,10 +93,10 @@ namespace Program {
         // 2: jnz rel8
         // 4: sub rcx,1
         // 2: jnz rel8
-        // 2: jmp afterMov
+        // 5: jmp afterMov
         // 10: mov rax, imm64
         // afterMov:
-        public const int MaxBranchBytes = 20;
+        public const int MaxBranchBytes = 32;
 
         static AsmUtil() {
             CreateFormatContext();
@@ -593,7 +593,7 @@ namespace Program {
         public static string BytesToHex(byte[] mem) {
             var s = "";
             foreach (var b in mem) {
-                s += $"{b:X2}";
+                s += $"{b:X2} ";
             }
             return s;
         }
