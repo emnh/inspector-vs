@@ -411,11 +411,11 @@ namespace Program {
                                 Console.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X} code {code}, 0x{breakAddress:X}");
                                 ContextManager.setTrace((uint)evt.dwThreadId);
 
-                                var instr = AsmUtil.Disassemble(process, exceptionAddress);
-                                var asm = AsmUtil.FormatInstruction(instr);
+                                var instr = AssemblyUtil.Disassemble(process, exceptionAddress);
+                                var asm = AssemblyUtil.FormatInstruction(instr);
                                 var strContext = oldThreadState.ContainsKey(evt.dwThreadId) ? 
-                                    AsmUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].Context, oldThreadState[evt.dwThreadId].Instruction) : 
-                                    AsmUtil.FormatContext(context);
+                                    AssemblyUtil.FormatContextDiff(context, oldThreadState[evt.dwThreadId].Context, oldThreadState[evt.dwThreadId].Instruction) : 
+                                    AssemblyUtil.FormatContext(context);
                                 logger.WriteLine($"thread {evt.dwThreadId} break at 0x{exceptionAddress:X}, 0x{breakAddress:X} code {code}: {asm}, regs-1: {strContext}");
 
                                 oldThreadState[evt.dwThreadId] = new OldState {

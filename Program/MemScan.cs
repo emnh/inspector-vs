@@ -109,7 +109,7 @@ namespace Program {
 
         private static void DumpAssembly(byte[] traceMemory) {
             BigInteger oldProgress = 0;
-            var subRange = new byte[AsmUtil.MaxInstructionBytes];
+            var subRange = new byte[AssemblyUtil.MaxInstructionBytes];
             using (var sw2 = new StreamWriter(Specifics.AsmDumpFileName)) {
                 using (FileStream asmSizesFs = new FileStream(Specifics.WriteAsmSizesDumpFileName, FileMode.Create),
                                   asmBranchesFs = new FileStream(Specifics.WriteAsmBranchDumpFileName, FileMode.Create)) {
@@ -117,7 +117,7 @@ namespace Program {
                         asmBranchesBw = new BinaryWriter(asmBranchesFs)) {
                         for (ulong i = 0; i < (ulong)traceMemory.Length; i++) {
                             Array.Copy(traceMemory, (int)i, subRange, 0,
-                                (int)Math.Min(AsmUtil.MaxInstructionBytes, (ulong)traceMemory.Length - i));
+                                (int)Math.Min(AssemblyUtil.MaxInstructionBytes, (ulong)traceMemory.Length - i));
                             var progress = new BigInteger(i) * 100 / traceMemory.Length;
                             //Console.WriteLine($"progress: {progress}");
 
@@ -127,11 +127,11 @@ namespace Program {
                             oldProgress = progress;
 
                             byte instructionLength = 0;
-                            byte[] paddedCbytes = new byte[AsmUtil.MaxBranchBytes];
+                            byte[] paddedCbytes = new byte[AssemblyUtil.MaxBranchBytes];
 
                             Instruction instruction = null;
                             try {
-                                instruction = AsmUtil.Disassemble(subRange);
+                                instruction = AssemblyUtil.Disassemble(subRange);
                             } catch (IndexOutOfRangeException) {
                                 // ignore
                                 sw2.WriteLine("SharpDisasm: failed with IndexOutOfRangeException");
@@ -146,7 +146,7 @@ namespace Program {
                                 //var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
                                 //sw2.WriteLine($"{i:X}: {instruction} OPS: {ops}, OPS2: {ops2}");
                                 // sw2.WriteLine($"PREWRITE {i:X}: {instruction}");
-                                var maybeJump = AsmUtil.IsBranch(instruction);
+                                var maybeJump = AssemblyUtil.IsBranch(instruction);
                                 if (maybeJump.Present) {
                                     List<Instruction> asmSame = new List<Instruction>();
 
@@ -155,7 +155,7 @@ namespace Program {
                                     sw2.WriteLine($"{i:X}: {instruction}");
                                     foreach (var instr in asmSame) {
                                         var hex =
-                                            AsmUtil.BytesToHex(
+                                            AssemblyUtil.BytesToHex(
                                                 paddedCbytes.Skip((int)instr.Offset)
                                                     .Take(instr.Length)
                                                     .ToArray());
@@ -196,7 +196,7 @@ namespace Program {
                     c.Bind(finishLabel);
 
                     try {
-                        cbytes = AsmUtil.GetAsmJitBytes(c);
+                        cbytes = AssemblyUtil.GetAsmJitBytes(c);
                         break;
                     }
                     catch (Exception) {
@@ -210,23 +210,23 @@ namespace Program {
                 if (cbytes != null) {
                     if (cbytes.Length > paddedCbytes.Length) {
                         throw new Exception(
-                            $"miscalculated max size: {nameof(AsmUtil.MaxBranchBytes)}: {AsmUtil.MaxBranchBytes} < {cbytes.Length}");
+                            $"miscalculated max size: {nameof(AssemblyUtil.MaxBranchBytes)}: {AssemblyUtil.MaxBranchBytes} < {cbytes.Length}");
                     }
                     Array.Copy(cbytes, paddedCbytes, cbytes.Length);
                     for (int j = cbytes.Length; j < paddedCbytes.Length; j++) {
-                        paddedCbytes[j] = AsmUtil.Nop;
+                        paddedCbytes[j] = AssemblyUtil.Nop;
                     }
 
                     try {
-                        foreach (var instr in AsmUtil.DisassembleMany(paddedCbytes, 100)
+                        foreach (var instr in AssemblyUtil.DisassembleMany(paddedCbytes, 100)
                             ) {
                             asmSame.Add(instr);
                         }
                     }
                     catch (DecodeException) {
-                        sw2.WriteLine("decode failed: " + AsmUtil.BytesToHex(cbytes));
+                        sw2.WriteLine("decode failed: " + AssemblyUtil.BytesToHex(cbytes));
                         throw new Exception("decode failed: " +
-                                            AsmUtil.BytesToHex(cbytes));
+                                            AssemblyUtil.BytesToHex(cbytes));
                     }
                 }
                 else {

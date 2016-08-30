@@ -53,10 +53,10 @@ namespace Program {
 
             var breakAddress = context.Rip;
 
-            var mem = DebugProcessUtils.ReadBytes(process, breakAddress, AsmUtil.MaxInstructionBytes);
+            var mem = DebugProcessUtils.ReadBytes(process, breakAddress, AssemblyUtil.MaxInstructionBytes);
             var distance = (long)(breakAddress - cm.LastBreakAddress);
             
-            var decodedInstruction = AsmUtil.Disassemble(process, breakAddress);
+            var decodedInstruction = AssemblyUtil.Disassemble(process, breakAddress);
             var hex = DebugProcessUtils.BytesToHex(mem.Take(decodedInstruction.Length).ToArray());
 
             var moduleAddressTuple = _importResolver.LookupAddress(breakAddress);
@@ -189,8 +189,8 @@ namespace Program {
             }
 
             var registers = _oldState.ContainsKey(threadId) ? 
-                AsmUtil.FormatContextDiff(context, _oldState[threadId].Context, _oldState[threadId].SdInstruction) : 
-                AsmUtil.FormatContext(context);
+                AssemblyUtil.FormatContextDiff(context, _oldState[threadId].Context, _oldState[threadId].SdInstruction) : 
+                AssemblyUtil.FormatContext(context);
             //logFile.WriteLine(registers);
             var previous = "";
             var lineBreak = false;

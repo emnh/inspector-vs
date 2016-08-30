@@ -12,8 +12,6 @@ using diStorm;
 using SharpDisasm;
 using SharpDisasm.Udis86;
 
-// TODO: rename file from ASMUtil to AsmUtil
-
 namespace Program {
 
     public class MaybeUdType {
@@ -81,7 +79,7 @@ namespace Program {
         }
     }
 
-    public class AsmUtil {
+    public class AssemblyUtil {
         public const int MaxInstructionBytes = 15;
         public const int MaxInstructions = 1;
         public const byte Nop = 0x90;
@@ -98,7 +96,7 @@ namespace Program {
         // afterMov:
         public const int MaxBranchBytes = 32;
 
-        static AsmUtil() {
+        static AssemblyUtil() {
             CreateFormatContext();
             CreateFormatContextDiff();
         }
@@ -107,9 +105,9 @@ namespace Program {
             var registers = new List<Expression>();
             ParameterExpression contextParam = Expression.Parameter(typeof(Win32Imports.ContextX64), "context");
             bool first = true;
-            MethodInfo miFormatValue = typeof(AsmUtil).GetMethod(nameof(FormatValue),
+            MethodInfo miFormatValue = typeof(AssemblyUtil).GetMethod(nameof(FormatValue),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
-            MethodInfo miFormatFlags = typeof(AsmUtil).GetMethod(nameof(FormatFlags),
+            MethodInfo miFormatFlags = typeof(AssemblyUtil).GetMethod(nameof(FormatFlags),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             foreach (var field in typeof(Win32Imports.ContextX64).GetFields(BindingFlags.Instance |
                                                                             BindingFlags.NonPublic |
@@ -158,9 +156,9 @@ namespace Program {
             ParameterExpression oldInstructionParam = Expression.Parameter(typeof(Instruction), "oldInstruction");
             bool first = true;
 
-            MethodInfo miFormatValueDiff = typeof(AsmUtil).GetMethod(nameof(FormatValueDiff),
+            MethodInfo miFormatValueDiff = typeof(AssemblyUtil).GetMethod(nameof(FormatValueDiff),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
-            MethodInfo miFormatFlags = typeof(AsmUtil).GetMethod(nameof(FormatFlagsDiff),
+            MethodInfo miFormatFlags = typeof(AssemblyUtil).GetMethod(nameof(FormatFlagsDiff),
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             // Console.WriteLine($"miFVD: {miFormatValueDiff}");
 

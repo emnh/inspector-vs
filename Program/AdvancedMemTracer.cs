@@ -108,7 +108,7 @@ namespace Program {
             c1.Nop();
             c1.Nop();
 
-            var patchSiteCodeJit = AsmUtil.GetAsmJitBytes(c1);
+            var patchSiteCodeJit = AssemblyUtil.GetAsmJitBytes(c1);
             Debug.Assert(patchSiteCodeJit.Length == patchSiteSize, "patch site size incorrect");
 
             var c = Assembler.CreateContext<Action>();
@@ -134,7 +134,7 @@ namespace Program {
             // reserve space for instruction counter, the 01-08 is just so AsmJit doesn't shorten the instruction
             // we overwrite the value to 0 later on
             c.Mov(c.Rax, (ulong) 0x0102030405060708);
-            var smcLastRipJit = AsmUtil.GetAsmJitBytes(c).Length - addrSize;
+            var smcLastRipJit = AssemblyUtil.GetAsmJitBytes(c).Length - addrSize;
             c.Lea(c1.Rax, Memory.QWord(CodeContext.Rip, -7 - addrSize));
             c.Mov(c.Rcx, Memory.QWord(c.Rax));
             c.Inc(c.Rcx);
@@ -203,7 +203,7 @@ namespace Program {
             c.Ret((ulong) 8);
 
             // overwrite some pieces of the code with values computed later on
-            var codeSiteCodeJit = AsmUtil.GetAsmJitBytes(c);
+            var codeSiteCodeJit = AssemblyUtil.GetAsmJitBytes(c);
             for (var j = 0; j < 8; j++) {
                 codeSiteCodeJit[smcLastRipJit + j] = 0;
             }
@@ -214,7 +214,7 @@ namespace Program {
                 foreach (var s in codeSiteCodeJit.Select((b1) => $"b: 0x{b1:X2}")) {
                     var asm1S = "";
                     try {
-                        var asm1 = AsmUtil.Disassemble(codeSiteCodeJit.Skip(i).Take(AsmUtil.MaxInstructionBytes).ToArray());
+                        var asm1 = AssemblyUtil.Disassemble(codeSiteCodeJit.Skip(i).Take(AssemblyUtil.MaxInstructionBytes).ToArray());
                         asm1S = i == nextOffset1 ? asm1.ToString() : "";
                         if (i == nextOffset1) {
                             nextOffset1 += asm1.Length;

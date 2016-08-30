@@ -25,9 +25,9 @@ namespace Test {
             var c = Assembler.CreateContext<Action>();
             c.Sub(c.Rcx, 1);
             c.Compile();
-            var bs = AsmUtil.GetAsmJitBytes(c);
-            Console.WriteLine($"bytes: {AsmUtil.BytesToHex(bs)}");
-            var asm = AsmUtil.Disassemble(bs.Skip(0).ToArray());
+            var bs = AssemblyUtil.GetAsmJitBytes(c);
+            Console.WriteLine($"bytes: {AssemblyUtil.BytesToHex(bs)}");
+            var asm = AssemblyUtil.Disassemble(bs.Skip(0).ToArray());
             Console.WriteLine($"asm: {asm}");
 
             // TestFormatContext(process);
@@ -62,7 +62,7 @@ namespace Test {
 
         private static void TestDisassemble() {
             var mem = new byte[] {0xCD, 0x2D};
-            var asm = AsmUtil.Disassemble(mem);
+            var asm = AssemblyUtil.Disassemble(mem);
             Console.WriteLine($"asm: {asm}, {asm.Mnemonic}, {asm.Operands[0].Value:X}");
         }
 
@@ -71,11 +71,11 @@ namespace Test {
             ContextManager.getRip((uint) process.Threads[0].Id, ref context, ContextManager.GetRipAction.ActionGetContext);
             var context2 = new Win32Imports.ContextX64();
             ContextManager.getRip((uint) process.Threads[0].Id, ref context2, ContextManager.GetRipAction.ActionGetContext);
-            var instr = AsmUtil.ReadOneAndDisassemble(process, context2.Rip);
+            var instr = AssemblyUtil.ReadOneAndDisassemble(process, context2.Rip);
             var asm = instr.ToString();
-            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context)}");
-            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContext(context2)}");
-            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AsmUtil.FormatContextDiff(context2, context, instr)}");
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AssemblyUtil.FormatContext(context)}");
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AssemblyUtil.FormatContext(context2)}");
+            Console.WriteLine($"0x{context2.Rip:X}: {asm} {AssemblyUtil.FormatContextDiff(context2, context, instr)}");
         }
 
         public static void DumpModuleSizes(Process process) {
