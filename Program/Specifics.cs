@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 
 namespace Program {
@@ -8,8 +7,8 @@ namespace Program {
         public const string ProcessName = "DebugTest";
         public const string TraceModuleName = "DebugTest.exe";
 #else
-        public const string ProcessName = "x64";
-        public const string TraceModuleName = "x64.exe";
+        public const string ProcessName = "SC2_x64";
+        public const string TraceModuleName = "SC2_x64.exe";
 #endif
 
 #if DEBUG
@@ -31,6 +30,9 @@ namespace Program {
                 //addressOffset = 0x61437C
                 AddressOffset = 0x614FDC
             };
+        public static byte[] StartAddressBytes = {
+            0x89, 0x77, 0x60, 0x48, 0x8B, 0x74, 0x24, 0x40
+        };
 #endif
 
         public const int MainLoopDelay = 100;
@@ -54,6 +56,7 @@ namespace Program {
         public static string ImportsDump = Path.Combine(BasePath, @"imports.txt");
         public static string WriteAsmBranchDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-branches-write.bin");
         public static string ReadAsmBranchDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-branches-read.bin");
+        public static string WriteAsmBranchNasmDumpFileName = Path.Combine(BasePath, TraceModuleName + @"-asm-branches-write.asm");
 
         static Specifics() {
             Directory.CreateDirectory(BasePath);

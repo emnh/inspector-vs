@@ -10,9 +10,8 @@ namespace CodeGenLib
 {
     public class CodeGen
     {
-
-        static string newline = "\r\n";
-        static string indent = "    ";
+        private const string Newline = "\r\n";
+        private const string Indent = "    ";
 
         public static string Repeat(string s, int n) {
             return new String(Enumerable.Range(0, n).SelectMany(x => s).ToArray());
@@ -24,9 +23,9 @@ namespace CodeGenLib
             var mnemonicNameToMethodInfoList = new Dictionary<string, List<MethodInfo>>();
             var mnemonicToBody = new Dictionary<string, string>();
 
-            var indent5 = Repeat(indent, 5);
-            var indent6 = Repeat(indent, 6);
-            var indent7 = Repeat(indent, 7);
+            var indent5 = Repeat(Indent, 5);
+            var indent6 = Repeat(Indent, 6);
+            var indent7 = Repeat(Indent, 7);
 
             foreach (var method in typeof(CodeContext).GetMethods(BindingFlags.Instance |
                                                                   BindingFlags.Public)) {
@@ -73,20 +72,20 @@ namespace CodeGenLib
                         var checks = String.Join(" && ", methodChecks);
                         var arguments = String.Join(", ", methodArguments);
                         var methodCall = $"context.{method.Name}({arguments})";
-                        var methodBody = $"{indent6}if ({checks}) {{{newline}{indent7}{methodCall};\r\n";
-                        methodBody += $"{indent7}return;{newline}{indent6}}}{indent6}{newline}";
+                        var methodBody = $"{indent6}if ({checks}) {{{Newline}{indent7}{methodCall};\r\n";
+                        methodBody += $"{indent7}return;{Newline}{indent6}}}{indent6}{Newline}";
                         parts.Add(methodBody);
                     }
-                    var decls = String.Join(newline, varDecls);
-                    var joinParts = String.Join(newline, parts);
-                    mnemonicToBody[mnemonic.ToString()] = $"{indent6}{{ {decls}{newline}{joinParts} {indent6}}}";
+                    var decls = String.Join(Newline, varDecls);
+                    var joinParts = String.Join(Newline, parts);
+                    mnemonicToBody[mnemonic.ToString()] = $"{indent6}{{ {decls}{Newline}{joinParts} {indent6}}}";
                 }
             }
 
             var casesList = new List<string>();
             foreach (var mnemonic in mnemonics) {
                 var caseHead = $"{indent5}case ud_mnemonic_code.{mnemonic}:";
-                var caseBody = "";
+                string caseBody;
                 if (mnemonicToBody.ContainsKey(mnemonic.ToString())) {
                     caseBody = mnemonicToBody[mnemonic.ToString()];
                     caseBody += $"{indent7}throw new AssembleException($\"unsupported operands to instruction: {{instruction}}\");";
@@ -98,7 +97,7 @@ namespace CodeGenLib
                 casesList.Add(caseBody);
             }
             
-            var cases = String.Join(newline, casesList);
+            var cases = String.Join(Newline, casesList);
             var body = $"switch (instruction.Mnemonic) {{ {cases} }}";
             var methodDecl = $"public static void AsmJitAssemble(CodeContext context, SharpDisasm.Instruction instruction) {{ {body} }}";
             var classed = $"public class AsmJitAssemblerTemp {{ {methodDecl} }}";

@@ -52,9 +52,6 @@
     <StartupObject />
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="SharpDisasm">
-      <HintPath>..\lib\SharpDisasm.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -73,6 +70,10 @@
     <ProjectReference Include="..\AsmJit\AsmJit\AsmJit.csproj">
       <Project>{fc415f40-fdee-463d-b8a9-84715fcd2d9d}</Project>
       <Name>AsmJit</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\AsmJit\SharpDisasm\SharpDisasm.csproj">
+      <Project>{2e6b8c04-c545-4251-ac4e-49e5058b2728}</Project>
+      <Name>SharpDisasm</Name>
     </ProjectReference>
     <ProjectReference Include="..\Program\Program.csproj">
       <Project>{b3e807f2-068a-4398-91e8-a493d48e406b}</Project>

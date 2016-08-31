@@ -10,6 +10,7 @@ namespace Program {
         public static void Main() {
             var process = DebugProcessUtils.GetFirstProcessByName(Specifics.ProcessName);
 
+            // ReSharper disable once UnusedVariable
             using (var logger = new Logger(Specifics.LogName, Specifics.LogNameLatest)) {
 
                 ImportResolver ir = new ImportResolver(process);
@@ -30,7 +31,7 @@ namespace Program {
             }
         }
 
-        private static void TraceMain(Process process, ImportResolver ir, List<ulong> matches, Logger logger) {
+        public static void TraceMain(Process process, ImportResolver ir, List<ulong> matches, Logger logger) {
             MemScan.MemMain(process, ir, true);
 
             var patchSite = matches.First();

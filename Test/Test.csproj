@@ -61,9 +61,6 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\lib\diStorm.dll</HintPath>
     </Reference>
-    <Reference Include="SharpDisasm">
-      <HintPath>..\lib\SharpDisasm.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -93,6 +90,10 @@
     <ProjectReference Include="..\AsmJit\AsmJit\AsmJit.csproj">
       <Project>{fc415f40-fdee-463d-b8a9-84715fcd2d9d}</Project>
       <Name>AsmJit</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\AsmJit\SharpDisasm\SharpDisasm.csproj">
+      <Project>{2e6b8c04-c545-4251-ac4e-49e5058b2728}</Project>
+      <Name>SharpDisasm</Name>
     </ProjectReference>
     <ProjectReference Include="..\CodeGenLib\CodeGenLib.csproj">
       <Project>{65cdee3d-7f82-47ff-9ca7-a68f04680833}</Project>

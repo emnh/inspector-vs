@@ -56,7 +56,7 @@ namespace AsmJitAssembleLib {
             if (operand.Type == ud_type.UD_OP_JIMM) {
                 ulong immediate;
                 ulong truncMask = 0xffffffffffffffff >> (64 - instruction.opr_mode);
-                Console.WriteLine($"opr_mode: {instruction.opr_mode}");
+                //Console.WriteLine($"opr_mode: {instruction.opr_mode}");
                 switch (operand.Size) {
                     case 8:
                         //immediate = (instruction.PC + (ulong)operand.LvalSByte) & truncMask;

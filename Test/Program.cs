@@ -50,8 +50,8 @@ namespace Test {
             var asms = AssemblyUtil.DisassembleMany(bs, 100);
 
             foreach (var asm in asms) {
-                Console.WriteLine($"asm: {asm}");
-                var asm2 = AssemblyUtil.Reassemble(asm);
+                Console.WriteLine($"asm: {asm}, bytes: {AssemblyUtil.BytesToHex(asm.Bytes)}");
+                var asm2 = AssemblyUtil.ReassembleNasm64(asm);
                 Console.WriteLine($"asm: {asm}, asm2: {asm2}");
                 // PrintAsmDetails(asm);
             }
@@ -79,7 +79,7 @@ namespace Test {
             Console.ReadKey();
         }
 
-        private static void PrintAsmDetails(Instruction asm) {
+        public static void PrintAsmDetails(Instruction asm) {
             Console.WriteLine($"asm PC: {asm.PC}");
             Console.WriteLine($"asm LValSByte: {asm.Operands.First().LvalSByte}");
             Console.WriteLine($"asm (ulong) LValSByte: {(ulong) asm.Operands.First().LvalSByte:X}");
@@ -90,20 +90,20 @@ namespace Test {
                 $"asm (PC + (ulong) LValSByte) & truncMask: {(asm.PC + (ulong) asm.Operands.First().LvalSByte) & truncMask:X}");
         }
 
-        private static void TestResolve(Process process) {
+        public static void TestResolve(Process process) {
             ImportResolver ir = new ImportResolver(process);
             Console.WriteLine($"baseAddress: {(ulong) process.MainModule.BaseAddress:X}");
             var address = ir.ResolveRelativeAddress(Specifics.StartAddress);
             Console.WriteLine($"address: {address:X}");
         }
 
-        private static void TestDisassemble() {
+        public static void TestDisassemble() {
             var mem = new byte[] {0xCD, 0x2D};
             var asm = AssemblyUtil.Disassemble(mem);
             Console.WriteLine($"asm: {asm}, {asm.Mnemonic}, {asm.Operands[0].Value:X}");
         }
 
-        private static void TestFormatContext(Process process) {
+        public static void TestFormatContext(Process process) {
             var context = new Win32Imports.ContextX64();
             ContextManager.getRip((uint) process.Threads[0].Id, ref context, ContextManager.GetRipAction.ActionGetContext);
             var context2 = new Win32Imports.ContextX64();

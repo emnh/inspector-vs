@@ -3,14 +3,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using AsmJit.AssemblerContext;
-using AsmJitAssembleLib;
 using SharpDisasm;
-using SharpDisasm.Udis86;
 using static Program.Win32Imports;
 
 namespace Program {
@@ -109,15 +105,28 @@ namespace Program {
             return totalSize2;
         }
 
+        [HandleProcessCorruptedStateExceptions]
         private static void DumpAssembly(byte[] traceMemory) {
             BigInteger oldProgress = 0;
             var subRange = new byte[AssemblyUtil.MaxInstructionBytes];
-            using (var sw2 = new StreamWriter(Specifics.AsmDumpFileName)) {
-                using (FileStream asmSizesFs = new FileStream(Specifics.WriteAsmSizesDumpFileName, FileMode.Create),
-                                  asmBranchesFs = new FileStream(Specifics.WriteAsmBranchDumpFileName, FileMode.Create)) {
-                    using (BinaryWriter asmSizesBw = new BinaryWriter(asmSizesFs),
-                        asmBranchesBw = new BinaryWriter(asmBranchesFs)) {
+            using (StreamWriter sw2 = new StreamWriter(Specifics.AsmDumpFileName)) {
+                using (FileStream asmSizesFs = new FileStream(Specifics.WriteAsmSizesDumpFileName, FileMode.Create)) {
+                    using (BinaryWriter asmSizesBw = new BinaryWriter(asmSizesFs)) {
+                        StreamWriter asmBranchesNasm = null;
+
                         for (ulong i = 0; i < (ulong)traceMemory.Length; i++) {
+                            ulong instructionsPerFile = 50000;
+                            if (i % instructionsPerFile == 0) {
+                                asmBranchesNasm?.Close();
+                                asmBranchesNasm = new StreamWriter(Specifics.WriteAsmBranchNasmDumpFileName + $"{(i / instructionsPerFile):D8}.asm");
+                                asmBranchesNasm.Write(@"BITS 64
+; %idefine rip rel $+(.next-.prev)
+");
+                            }
+                            if (asmBranchesNasm == null) {
+                                throw new Exception("shouldn't happen");
+                            }
+
                             Array.Copy(traceMemory, (int)i, subRange, 0,
                                 (int)Math.Min(AssemblyUtil.MaxInstructionBytes, (ulong)traceMemory.Length - i));
                             var progress = new BigInteger(i) * 100 / traceMemory.Length;
@@ -129,11 +138,11 @@ namespace Program {
                             oldProgress = progress;
 
                             byte instructionLength = 0;
-                            byte[] paddedCbytes = new byte[AssemblyUtil.MaxBranchBytes];
 
                             Instruction instruction = null;
                             try {
                                 instruction = AssemblyUtil.Disassemble(subRange);
+                                instructionLength = (byte) instruction.Length;
                             } catch (IndexOutOfRangeException) {
                                 // ignore
                                 sw2.WriteLine("SharpDisasm: failed with IndexOutOfRangeException");
@@ -142,116 +151,58 @@ namespace Program {
                                 sw2.WriteLine("SharpDisasm: failed with DecodeException");
                             }
 
-                            if (instruction != null) {
-                                instructionLength = (byte)instruction.Length;
-                                //var ops = string.Join(",", instruction.Operands.Select(x => x.Index));
-                                //var ops2 = string.Join(",", instruction.Operands.Select(x => x.Base));
-                                //sw2.WriteLine($"{i:X}: {instruction} OPS: {ops}, OPS2: {ops2}");
-                                // sw2.WriteLine($"PREWRITE {i:X}: {instruction}");
-                                var maybeJump = AssemblyUtil.IsBranch(instruction);
+                            string asm;
+                            bool toStringWorked = false;
+                            try {
+                                asm = instruction?.ToString();
+                                toStringWorked = true;
+                            } catch (IndexOutOfRangeException) {
+                                asm = "IndexOutOfRangeException";
+                            }
 
+                            asmBranchesNasm.WriteLine($"instr{i}:");
+                            asmBranchesNasm.WriteLine(".prev:");
+                            if (toStringWorked &&
+                                instruction != null &&
+                                AssemblyUtil.IsNasmValid(instruction, asm)) {
 
-                                if (instruction.Mnemonic != ud_mnemonic_code.UD_Iinvalid) {
-                                    Instruction reInstruction = null;
-                                    try {
-                                        reInstruction = AssemblyUtil.Reassemble(instruction);
-                                    } catch (AssembleException) {
-                                        var t = instruction.Operands.First().Type;
-                                        Console.WriteLine($"t: {t}");
-                                        throw;
-                                    }
-                                    
-                                    sw2.WriteLine(
-                                        $"{i:X}: {instruction}, {reInstruction}, eq: {instruction.ToString().Equals(reInstruction.ToString())}");
-                                } else {
-                                    sw2.WriteLine($"{i:X}: {instruction}");
-                                }
-                                
+                                var maybeJump = BranchRewriteSimple.IsBranch(instruction);
+
+                                sw2.WriteLine($"{i:X}: {asm}");
 
                                 if (maybeJump.Present) {
-                                    List<Instruction> asmSame = new List<Instruction>();
-
-                                    WriteBranchData(maybeJump, instruction, paddedCbytes, asmSame, sw2);
-
-                                    //sw2.WriteLine($"{i:X}: {instruction}");
-                                    foreach (var instr in asmSame) {
-                                        var hex =
-                                            AssemblyUtil.BytesToHex(
-                                                paddedCbytes.Skip((int)instr.Offset)
-                                                    .Take(instr.Length)
-                                                    .ToArray());
-                                        sw2.WriteLine($"{instr.Offset:X}: {hex} {instr}");
+                                    asmBranchesNasm.WriteLine($"db 0x{(byte) maybeJump.RipEquals:X2}");
+                                    asmBranchesNasm.WriteLine($"{maybeJump.AddBranchOfSameType(".setrip")}");
+                                    asmBranchesNasm.WriteLine("jmp .next");
+                                    asmBranchesNasm.WriteLine(".setrip:");
+                                    foreach (var s in maybeJump.AddInstrToGetBranchTarget()) {
+                                        asmBranchesNasm.WriteLine(s);
                                     }
-                                    sw2.WriteLine("");
                                 } else {
-                                    for (var j = 0; j < paddedCbytes.Length; j++) {
-                                        paddedCbytes[j] = 0x90;
-                                    }
+                                    // flags
+                                    var freeRegister = BranchRewriteSimple.FindFreeRegister(asm);
+                                    string ripRegister = freeRegister.ToString().ToLower();
+                                    asm = asm.Replace("rip", ripRegister);
+                                    asmBranchesNasm.WriteLine($"db 0x{(byte) freeRegister:X2}");
+                                    asmBranchesNasm.WriteLine(asm);
                                 }
+                            } else {
+                                asmBranchesNasm.WriteLine("; failed to decode");
+                                // flags
+                                asmBranchesNasm.WriteLine("db 0xFF");
+                                asmBranchesNasm.WriteLine("db " + AssemblyUtil.BytesToHexZeroX(subRange, ","));
                             }
+                            asmBranchesNasm.WriteLine(".next:");
+                            asmBranchesNasm.WriteLine($"%if {AssemblyUtil.MaxBranchBytes}-(.next-.prev) < 0");
+                            asmBranchesNasm.WriteLine("%error Not enough space allocated");
+                            asmBranchesNasm.WriteLine("%endif");
+                            asmBranchesNasm.WriteLine($"times {AssemblyUtil.MaxBranchBytes}-(.next-.prev) nop");
+                            asmBranchesNasm.WriteLine("");
+
                             asmSizesBw.Write(instructionLength);
-                            asmBranchesBw.Write(paddedCbytes);
                         }
+                        asmBranchesNasm?.Close();
                     }
-                }
-            }
-        }
-
-        [HandleProcessCorruptedStateExceptions]
-        private static void WriteBranchData(MaybeJump maybeJump, Instruction instruction, byte[] paddedCbytes, List<Instruction> asmSame, StreamWriter sw2) {
-            if (maybeJump.AddBranchOfSameType != null &&
-                maybeJump.AddInstrToGetBranchTarget != null) {
-                byte[] cbytes = null;
-
-                // asmjit fails randomly with memory errors, so give it some tries
-                // TODO: locate their bug and submit a patch
-                var maxTryCount = 3;
-                for (var tryCount = 0; tryCount < maxTryCount; tryCount++) {
-                    var c = Assembler.CreateContext<Action>();
-                    var label = c.Label();
-                    var finishLabel = c.Label();
-                    maybeJump.AddBranchOfSameType(c, label);
-                    c.Jmp(finishLabel);
-                    c.Bind(label);
-                    maybeJump.AddInstrToGetBranchTarget(c, c.Rax);
-                    c.Bind(finishLabel);
-
-                    try {
-                        cbytes = AssemblyUtil.GetAsmJitBytes(c);
-                        break;
-                    }
-                    catch (Exception) {
-                        if (tryCount + 1 == maxTryCount) {
-                            throw new Exception($"failed to handle: {instruction}");
-                        }
-                        //error = $"failed to get bytes 1 on try {tryCount}";
-                    }
-                }
-
-                if (cbytes != null) {
-                    if (cbytes.Length > paddedCbytes.Length) {
-                        throw new Exception(
-                            $"miscalculated max size: {nameof(AssemblyUtil.MaxBranchBytes)}: {AssemblyUtil.MaxBranchBytes} < {cbytes.Length}");
-                    }
-                    Array.Copy(cbytes, paddedCbytes, cbytes.Length);
-                    for (int j = cbytes.Length; j < paddedCbytes.Length; j++) {
-                        paddedCbytes[j] = AssemblyUtil.Nop;
-                    }
-
-                    try {
-                        foreach (var instr in AssemblyUtil.DisassembleMany(paddedCbytes, 100)
-                            ) {
-                            asmSame.Add(instr);
-                        }
-                    }
-                    catch (DecodeException) {
-                        sw2.WriteLine("decode failed: " + AssemblyUtil.BytesToHex(cbytes));
-                        throw new Exception("decode failed: " +
-                                            AssemblyUtil.BytesToHex(cbytes));
-                    }
-                }
-                else {
-                    throw new Exception("shouldn't happen");
                 }
             }
         }

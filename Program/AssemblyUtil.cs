@@ -1,16 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using AsmJit.AssemblerContext;
-using AsmJit.Common.Operands;
-using AsmJitAssembleLib;
 using diStorm;
 using SharpDisasm;
+using SharpDisasm.Translators;
 using SharpDisasm.Udis86;
 
 namespace Program {
@@ -18,45 +18,6 @@ namespace Program {
     public class MaybeUdType {
         public bool Present;
         public ud_type Type;
-    }
-
-    public enum BranchInstruction : byte {
-        Jmp,
-        Call,
-        Ret,
-        Loop,
-        Loope,
-        Loopne,
-        Ja,
-        Jae,
-        Jb,
-        Jbe,
-        Jcxz,
-        Jecxz,
-        Jg,
-        Jge,
-        Jl,
-        Jle,
-        Jno,
-        Jnp,
-        Jns,
-        Jnz,
-        Jo,
-        Jp,
-        Jrcxz,
-        Js,
-        Jz
-    }
-
-    public class MaybeJump {
-        public bool Present;
-        // if IsRelative is true, we should add target to instruction pointer
-        public bool IsRelative;
-        public BranchInstruction Branch;
-        public Action<CodeContext, Label> AddBranchOfSameType;
-        public Action<CodeContext, GpRegister> AddInstrToGetBranchTarget;
-        public Action<CodeContext, GpRegister> ApplyStackModifierBefore;
-        public Action<CodeContext, GpRegister> ApplyStackModifierAfter;
     }
 
     public class DecodeException : Exception {
@@ -72,14 +33,14 @@ namespace Program {
         public static byte[] InfiniteLoop = new byte[] { 0xEB, 0xFE };
         public static Func<Win32Imports.ContextX64, string> FormatContext;
         public static Func<Win32Imports.ContextX64, Win32Imports.ContextX64, Instruction, string> FormatContextDiff;
+
         // MaxBranchBytes is sum of size of:
+        // 2: db size, db flags
         // 2: jnz rel8
-        // 4: sub rcx,1
-        // 2: jnz rel8
-        // 5: jmp afterMov
+        // 2: jmp afterMov
         // 10: mov rax, imm64
         // afterMov:
-        public const int MaxBranchBytes = 31;
+        public const int MaxBranchBytes = 20;
 
         static AssemblyUtil() {
             CreateFormatContext();
@@ -87,11 +48,179 @@ namespace Program {
         }
 
         public static Instruction Reassemble(Instruction instruction) {
+            throw new NotImplementedException("removed AsmJitAssemble because the big file took a toll on VS and Resharper, plus crashing at runtime. using nasm now");
+            /*
             var c = Assembler.CreateContext<Action>();
             AsmJitAssembler.AsmJitAssemble(c, instruction);
             var bs = AssemblyUtil.GetAsmJitBytes(c);
             var newInstruction = AssemblyUtil.Disassemble(bs);
             return newInstruction;
+            */
+        }
+
+        [Obsolete]
+        public static Instruction ReassembleMl64(Instruction instruction) {
+            var template = @"
+.CODE
+main PROC
+  mov rax, 0102030405060708h
+  $REPLACEME
+  mov rax, 807060504030201h
+main ENDP
+END
+";
+
+            string tempPath = Path.GetTempPath();
+            string tempName = "scrap.asm";
+            string fullPath = Path.Combine(tempPath, tempName);
+            //SharpDisasm.Disassembler.Translator = new SharpDisasm.Translators.MasmTranslator();
+            var asm = new MasmTranslator().Translate(instruction);
+            Console.WriteLine($"masm: {asm}");
+            //SharpDisasm.Disassembler.Translator = new SharpDisasm.Translators.IntelTranslator();
+            File.WriteAllText(fullPath, template.Replace("$REPLACEME", asm));
+            //Process cl = Process.Start(@"CMD.exe", @"/K ""C:\Program Files(x86)\Microsoft Visual Studio 14.0\VC\bin\cl.exe"" " + cfile);
+
+            Console.WriteLine($"tempPath: {tempPath}");
+
+            Process cmd = new Process {
+                StartInfo = {
+                    FileName = @"CMD.exe",
+                    WorkingDirectory = tempPath,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                }
+            };
+
+
+            //cmd.StandardInput.WriteLine("echo Oscar");
+            //cmd.StandardInput.Flush();
+            cmd.Start();
+            cmd.StandardInput.WriteLine("\"" + @"C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" + "\"" + " amd64");
+            cmd.StandardInput.WriteLine(@"ml64.exe " + tempName + @" /link /subsystem:console /entry:main ");
+            //cmd.StandardInput.WriteLine(tempName.Replace(".c", ".exe"));
+            cmd.StandardInput.WriteLine(@"exit");
+            cmd.StandardInput.Close();
+            cmd.WaitForExit();
+            Console.WriteLine(cmd.StandardOutput.ReadToEnd());
+
+            var bs = File.ReadAllBytes(fullPath.Replace(".asm", ".obj"));
+
+            var startMarker = new byte[] { 0x48, 0xB8, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01 };
+            var endMarker = new byte[] { 0x48, 0xB8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+            int start = 0;
+            int end = 0;
+            for (var i = 0; i < bs.Length; i++) {
+                bool foundStart = true;
+                for (var j = 0; j < startMarker.Length; j++) {
+                    if (bs[i + j] != startMarker[j]) {
+                        foundStart = false;
+                        break;
+                    }
+                }
+                if (foundStart) {
+                    start = i + startMarker.Length;
+                }
+                bool foundEnd = true;
+                for (var j = 0; j < endMarker.Length; j++) {
+                    if (bs[i + j] != endMarker[j]) {
+                        foundEnd = false;
+                        break;
+                    }
+                }
+                if (foundEnd) {
+                    end = i;
+                    break;
+                }
+            }
+
+            var instructionBytes = bs.Skip(start).Take(end - start).ToArray();
+            var hex = BytesToHex(instructionBytes);
+
+            Console.WriteLine($"start: {start}, end: {end}, hex: {hex}");
+            Instruction instr = null;
+            if (instructionBytes.Length > 0) {
+                instr = Disassemble(instructionBytes);
+            }
+
+            return instr;
+        }
+
+        public static long LongRandom(long min, long max, Random rand) {
+            byte[] buf = new byte[8];
+            rand.NextBytes(buf);
+            long longRand = BitConverter.ToInt64(buf, 0);
+
+            return (Math.Abs(longRand % (max - min)) + min);
+        }
+
+        public static Instruction ReassembleNasm64(Instruction instruction) {
+            var template = @"
+BITS 64
+%idefine rip rel $+next-prev
+prev:
+$REPLACEME
+next:
+";
+            // %idefine rip rel $
+
+            string tempPath = Path.GetTempPath();
+            var num = LongRandom(0, long.MaxValue, new Random());
+            string tempName = $"scrap{num}.asm";
+            string fullPath = Path.Combine(tempPath, tempName);
+            
+            var asm = new NasmTranslator().Translate(instruction);
+            //Console.WriteLine($"nasm: {asm}, optype: {instruction.Operands.First().Type}");
+            
+            File.WriteAllText(fullPath, template.Replace("$REPLACEME", asm));
+            //Process cl = Process.Start(@"CMD.exe", @"/K ""C:\Program Files(x86)\Microsoft Visual Studio 14.0\VC\bin\cl.exe"" " + cfile);
+
+            //Console.WriteLine($"tempPath: {tempPath}");
+
+            Process cmd = new Process {
+                StartInfo = {
+                    FileName = @"CMD.exe",
+                    WorkingDirectory = tempPath,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                }
+            };
+
+            //cmd.StandardInput.WriteLine("echo Oscar");
+            //cmd.StandardInput.Flush();
+            cmd.Start();
+            
+            cmd.StandardInput.WriteLine(@"C:\Users\hvide\AppData\Local\NASM\nasmpath.bat");
+            cmd.StandardInput.WriteLine(@"nasm.exe -f bin " + tempName);
+            //cmd.StandardInput.WriteLine(tempName.Replace(".c", ".exe"));
+            cmd.StandardInput.WriteLine(@"exit");
+            cmd.StandardInput.Close();
+            cmd.WaitForExit();
+            cmd.StandardOutput.ReadToEnd();
+            //Console.WriteLine(cmd.StandardOutput.ReadToEnd());
+            foreach (var s in cmd.StandardError.ReadToEnd().Split(new[] { Environment.NewLine }, StringSplitOptions.None)) {
+                if (!s.Contains("warning: absolute address can not be RIP-relative")) {
+                    Console.WriteLine(s);
+                }
+            }
+            
+
+            var bs = File.ReadAllBytes(fullPath.Replace(".asm", ""));
+            var instructionBytes = bs;
+
+            //var hex = BytesToHex(instructionBytes);
+            //Console.WriteLine($"hex: {hex}");
+
+            Instruction instr = null;
+            if (instructionBytes.Length > 0) {
+                instr = Disassemble(instructionBytes);
+            }
+
+            return instr;
         }
 
         private static void CreateFormatContext() {
@@ -249,534 +378,45 @@ namespace Program {
             FormatContextDiff = expr.Compile();
         }
 
-        
-
-        public static void CreateLea(CodeContext context, GpRegister target, Instruction instruction) {
-            var operand = instruction.Operands.First();
-            Memory memoryReference = null;
-            GpRegister baseRegister = null;
-            bool baseRipRegister = false;
-            MaybeRegister maybeIndexRegister = null;
-            if (operand.Base != ud_type.UD_NONE) {
-                var maybeBaseRegister = SdToAsm.SdToAsmJit(context, operand.Base);
-                if (!maybeBaseRegister.Present) {
-                    throw new Exception($"could not map base register for: {instruction}");
-                }
-                if (maybeBaseRegister.Type != RegisterType.GpRegister) {
-                    if (maybeBaseRegister.Type == RegisterType.RipRegister) {
-                        baseRipRegister = true;
-                    }
-                    else {
-                        throw new Exception("could not map base register to GpRegister");
-                    }
-                }
-                else {
-                    baseRegister = (GpRegister)maybeBaseRegister.Register;
-                }
-            }
-
-            if (operand.Index != ud_type.UD_NONE) {
-                maybeIndexRegister = SdToAsm.SdToAsmJit(context, operand.Index);
-                if (!maybeIndexRegister.Present) {
-                    throw new Exception("could not map base register");
-                }
-            }
-
-            var displacement = SdToAsm.GetDisplacement(instruction, operand);
-            var displacementIntPtr = (IntPtr)displacement.Value;
-            var scale = 0;
-            switch (operand.Scale) {
-                case 0:
-                case 1:
-                    scale = 0;
-                    break;
-                case 2:
-                    scale = 1;
-                    break;
-                case 4:
-                    scale = 2;
-                    break;
-                case 8:
-                    scale = 3;
-                    break;
-            }
-
-            if (baseRipRegister) {
-                // in our emulator we are going to keep our RIP in target (RAX)
-                baseRegister = target;
-                if (maybeIndexRegister == null) {
-                    switch (operand.Size) {
-                        case 8:
-                            memoryReference = Memory.Byte(baseRegister, (int) displacement.Value);
-                            break;
-                        case 16:
-                            memoryReference = Memory.Word(baseRegister, (int) displacement.Value);
-                            break;
-                        case 32:
-                            memoryReference = Memory.DWord(baseRegister, (int) displacement.Value);
-                            break;
-                        case 64:
-                            memoryReference = Memory.QWord(baseRegister, (int) displacement.Value);
-                            break;
-                        case 80:
-                            memoryReference = Memory.TWord(baseRegister, (int) displacement.Value);
-                            break;
-                        default:
-                            throw new Exception("unsupported operand size");
-                    }
-                } else {
-                    throw new Exception("index register not supported when base register is RIP");
-                }
-            } else {
-                if (baseRegister == null && maybeIndexRegister == null) {
-                    switch (operand.Size) {
-                        case 8:
-                            memoryReference = Memory.ByteAbs(displacementIntPtr);
-                            break;
-                        case 16:
-                            memoryReference = Memory.WordAbs(displacementIntPtr);
-                            break;
-                        case 32:
-                            memoryReference = Memory.DWordAbs(displacementIntPtr);
-                            break;
-                        case 64:
-                            memoryReference = Memory.QWordAbs(displacementIntPtr);
-                            break;
-                        default:
-                            throw new Exception("unsupported operand size");
-                    }
-                } else if (baseRegister != null && maybeIndexRegister == null) {
-                    switch (operand.Size) {
-                        case 8:
-                            memoryReference = Memory.Byte(baseRegister, (int)displacement.Value);
-                            break;
-                        case 16:
-                            memoryReference = Memory.Word(baseRegister, (int)displacement.Value);
-                            break;
-                        case 32:
-                            memoryReference = Memory.DWord(baseRegister, (int)displacement.Value);
-                            break;
-                        case 64:
-                            memoryReference = Memory.QWord(baseRegister, (int)displacement.Value);
-                            break;
-                        case 80:
-                            memoryReference = Memory.TWord(baseRegister, (int)displacement.Value);
-                            break;
-                        default:
-                            throw new Exception("unsupported operand size");
-                    }
-                } else if (baseRegister == null) {
-                    switch (operand.Size) {
-                        case 8:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.ByteAbs(displacementIntPtr,
-                                        (GpRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.ByteAbs(displacementIntPtr,
-                                        (XmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.ByteAbs(displacementIntPtr,
-                                        (YmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                            }
-                            break;
-                        case 16:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.WordAbs(displacementIntPtr,
-                                        (GpRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.WordAbs(displacementIntPtr,
-                                        (XmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.WordAbs(displacementIntPtr,
-                                        (YmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                            }
-                            break;
-                        case 32:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.DWordAbs(displacementIntPtr,
-                                        (GpRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.DWordAbs(displacementIntPtr,
-                                        (XmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.DWordAbs(displacementIntPtr,
-                                        (YmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                            }
-                            break;
-                        case 64:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.QWordAbs(displacementIntPtr,
-                                        (GpRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.QWordAbs(displacementIntPtr,
-                                        (XmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.QWordAbs(displacementIntPtr,
-                                        (YmmRegister)maybeIndexRegister.Register, scale);
-                                    break;
-                            }
-                            break;
-                        case 80:
-                            throw new Exception("unsupported operand size 80");
-                        default:
-                            throw new Exception("unsupported operand size");
-                    }
-                } else {
-                    switch (operand.Size) {
-                        case 8:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.Byte(baseRegister,
-                                        (GpRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.Byte(baseRegister,
-                                        (XmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.Byte(baseRegister,
-                                        (YmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                            }
-                            break;
-                        case 16:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.Word(baseRegister,
-                                        (GpRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.Word(baseRegister,
-                                        (XmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.Word(baseRegister,
-                                        (YmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                            }
-                            break;
-                        case 32:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.DWord(baseRegister,
-                                        (GpRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.DWord(baseRegister,
-                                        (XmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.DWord(baseRegister,
-                                        (YmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                            }
-                            break;
-                        case 64:
-                            switch (maybeIndexRegister.Type) {
-                                case RegisterType.MmRegister:
-                                    throw new Exception("mmregister not supported as index by asmjit");
-                                case RegisterType.SegRegister:
-                                    throw new Exception("segregister not supported as index by asmjit");
-                                case RegisterType.GpRegister:
-                                    memoryReference = Memory.QWord(baseRegister,
-                                        (GpRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.XmmRegister:
-                                    memoryReference = Memory.QWord(baseRegister,
-                                        (XmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                                case RegisterType.YmmRegister:
-                                    memoryReference = Memory.QWord(baseRegister,
-                                        (YmmRegister)maybeIndexRegister.Register, scale, (int)displacement.Value);
-                                    break;
-                            }
-                            break;
-                        case 80:
-                            throw new Exception("unsupported operand size 80");
-                        default:
-                            throw new Exception("unsupported operand size");
-                    }
-                }
-            }
-            context.Lea(target, memoryReference);
+        public static bool IsNasmValid(Instruction instruction, string asm) {
+            return !asm.Contains("invalid") &&
+                   // unsupported instructions
+                   !asm.Contains("frstpm") &&
+                   !asm.Contains("fnsetpm") &&
+                   !asm.Contains("fstp1") &&
+                   !asm.Contains("fstp8") &&
+                   !asm.Contains("fstp9") &&
+                   !asm.Contains("fxch4") &&
+                   !asm.Contains("fxch7") &&
+                   !asm.Contains("fcom2") &&
+                   !asm.Contains("fcomp3") &&
+                   !asm.Contains("fcomp5") &&
+                   !asm.Contains("repne j") &&
+                   !asm.Contains("repne ret") &&
+                   // unsupported operands
+                   !asm.Contains("pinsrw") &&
+                   !asm.Contains("vmptrld") &&
+                   !asm.Contains("vmptrst") &&
+                   !asm.Contains("vpinsrw") &&
+                   !asm.Contains("divsd") &&
+                   !(instruction.Mnemonic == ud_mnemonic_code.UD_Inop && instruction.Operands.Length > 0) &&
+                   !(instruction.Mnemonic == ud_mnemonic_code.UD_Ipause && instruction.Operands.Length > 0);
         }
 
-        public static string BytesToHex(byte[] mem) {
-            var s = "";
+        public static string BytesToHex(byte[] mem, string separator = " ") {
+            var s = new List<string>();
             foreach (var b in mem) {
-                s += $"{b:X2} ";
+                s.Add($"{b:X2}");
             }
-            return s;
+            return String.Join(separator, s);
         }
 
-        public static MaybeJump IsBranch(Instruction instruction) {
-            var retVal = new MaybeJump();
-            //instruction.Operands.First()
-            switch (instruction.Mnemonic) {
-
-                // UNCONDITIONAL BRANCHES
-                
-                case ud_mnemonic_code.UD_Ijmp:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jmp;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jmp(label);
-                    break;
-                case ud_mnemonic_code.UD_Icall:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Call;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jmp(label);
-                    retVal.ApplyStackModifierBefore = (context, target) => context.Push(target);
-                    break;
-                case ud_mnemonic_code.UD_Iret:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Ret;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jmp(label);
-                    retVal.AddInstrToGetBranchTarget = (context, target) => {
-                        context.Mov(target, Memory.QWord(context.Rsp));
-                    };
-                    retVal.ApplyStackModifierAfter = (context, target) => context.Pop(target);
-                    break;
-
-                // CONDITIONAL BRANCHES
-
-                case ud_mnemonic_code.UD_Iloop:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Loop;
-                    retVal.AddBranchOfSameType = (context, label) => {
-                        context.Sub(context.Rcx, 1);
-                        context.Jnz(label);
-                    };
-                    break;
-                case ud_mnemonic_code.UD_Iloope:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Loope;
-                    retVal.AddBranchOfSameType = (context, label) => {
-                        context.Jz(label);
-                        context.Sub(context.Rcx, 1);
-                        context.Jnz(label);
-                    };
-                    break;
-                case ud_mnemonic_code.UD_Iloopne:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Loopne;
-                    retVal.AddBranchOfSameType = (context, label) => {
-                        context.Jnz(label);
-                        context.Sub(context.Rcx, 1);
-                        context.Jnz(label);
-                    };
-                    break;
-
-                // jump if above
-                case ud_mnemonic_code.UD_Ija:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Ja;
-                    retVal.AddBranchOfSameType = (context, label) => context.Ja(label);
-                    break;
-                // jump if above or equal
-                case ud_mnemonic_code.UD_Ijae:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jae;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jae(label);
-                    break;
-                // jump if below
-                case ud_mnemonic_code.UD_Ijb:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jb;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jb(label);
-                    break;
-                // jump if below or equal
-                case ud_mnemonic_code.UD_Ijbe:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jbe;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jbe(label);
-                    break;
-                // jump if cx register is 0
-                case ud_mnemonic_code.UD_Ijcxz:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jcxz;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jecxz(context.Cx, label);
-                    break;
-                // jump if ecx register is 0
-                case ud_mnemonic_code.UD_Ijecxz:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jecxz;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jecxz(context.Ecx, label);
-                    break;
-                // jump if greater
-                case ud_mnemonic_code.UD_Ijg:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jg;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jg(label);
-                    break;
-                // jump if greater or equal
-                case ud_mnemonic_code.UD_Ijge:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jge;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jge(label);
-                    break;
-                // jump if less than
-                case ud_mnemonic_code.UD_Ijl:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jl;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jl(label);
-                    break;
-                // jump if less than or equal
-                case ud_mnemonic_code.UD_Ijle:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jle;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jle(label);
-                    break;
-                // jump if not overflow
-                case ud_mnemonic_code.UD_Ijno:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jno;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jno(label);
-                    break;
-                // jump if not parity
-                case ud_mnemonic_code.UD_Ijnp:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jnp;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jnp(label);
-                    break;
-                // jump if not sign
-                case ud_mnemonic_code.UD_Ijns:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jns;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jns(label);
-                    break;
-                // jump if not zero
-                case ud_mnemonic_code.UD_Ijnz:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jnz;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jnz(label);
-                    break;
-                // jump if overflow
-                case ud_mnemonic_code.UD_Ijo:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jno;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jno(label);
-                    break;
-                // jump if parity
-                case ud_mnemonic_code.UD_Ijp:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jp;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jp(label);
-                    break;
-                // jump if rcx zero
-                case ud_mnemonic_code.UD_Ijrcxz:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jrcxz;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jecxz(context.Rcx, label);
-                    break;
-                // jump if signed
-                case ud_mnemonic_code.UD_Ijs:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Js;
-                    retVal.AddBranchOfSameType = (context, label) => context.Js(label);
-                    break;
-                // jump if zero
-                case ud_mnemonic_code.UD_Ijz:
-                    retVal.Present = true;
-                    retVal.Branch = BranchInstruction.Jz;
-                    retVal.AddBranchOfSameType = (context, label) => context.Jz(label);
-                    break;
+        public static string BytesToHexZeroX(byte[] mem, string separator = " ") {
+            var s = new List<string>();
+            foreach (var b in mem) {
+                s.Add($"0x{b:X2}");
             }
-            if (retVal.Present && retVal.Branch != BranchInstruction.Ret) {
-                retVal.AddInstrToGetBranchTarget = (context, target) => {
-                    GetBranchTarget(instruction, context, target);
-                };
-            }
-            return retVal;
-        }
-
-        private static void GetBranchTarget(Instruction instruction, CodeContext context, GpRegister target) {
-            var operand = instruction.Operands.First();
-            switch (operand.Type) {
-                case ud_type.UD_OP_REG:
-                    var maybeRegister = SdToAsm.SdToAsmJit(context, operand.Base);
-                    if (!maybeRegister.Present) {
-                        throw new Exception("could not map register");
-                    }
-                    switch (maybeRegister.Type) {
-                        case RegisterType.GpRegister:
-                            context.Mov(target, (GpRegister) maybeRegister.Register);
-                            break;
-                        case RegisterType.SegRegister:
-                            context.Mov(target, (SegRegister) maybeRegister.Register);
-                            break;
-                        default:
-                            throw new Exception("unsupported register");
-                    }
-                    break;
-                case ud_type.UD_OP_MEM:
-                    CreateLea(context, target, instruction);
-                    break;
-                case ud_type.UD_OP_JIMM:
-                    ulong immediate;
-                    ulong truncMask = 0xffffffffffffffff >> (64 - instruction.opr_mode);
-                    Console.WriteLine($"opr_mode: {instruction.opr_mode}");
-                    switch (operand.Size) {
-                        case 8:
-                            immediate = (instruction.PC + (ulong) operand.LvalSByte) & truncMask;
-                            break;
-                        case 16:
-                            immediate = (instruction.PC + (ulong) operand.LvalSWord) & truncMask;
-                            break;
-                        case 32:
-                            immediate = (instruction.PC + (ulong) operand.LvalSDWord) & truncMask;
-                            break;
-                        default:
-                            throw new Exception("invalid relative offset size.");
-                    }
-                    // in our emulator we are going to keep RIP in target (RAX)
-                    context.Lea(target, Memory.QWord(target, (int) immediate));
-                    break;
-                default:
-                    throw new Exception("unsupported operand type");
-            }
+            return String.Join(separator, s);
         }
 
         public static string Get32BitRegisterFrom64BitRegister(string reg) {
