@@ -1,5 +1,4 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using AsmJit.AssemblerContext;
 using SharpDisasm;
 using SharpDisasm.Udis86;
@@ -8,7 +7,7 @@ namespace AsmJitAssembleLib {
 
     public class SdToAsm {
 
-        public static UlongOrLong GetDisplacement(Instruction instruction, SharpDisasm.Operand op) {
+        public static UlongOrLong GetDisplacement(Instruction instruction, Operand op) {
             // mostly copied from ud_syn_print_mem_disp
             var retVal = new UlongOrLong();
             if (op.Offset == 0) {

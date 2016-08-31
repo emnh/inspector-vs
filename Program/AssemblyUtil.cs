@@ -74,7 +74,8 @@ END
             string tempName = "scrap.asm";
             string fullPath = Path.Combine(tempPath, tempName);
             //SharpDisasm.Disassembler.Translator = new SharpDisasm.Translators.MasmTranslator();
-            var asm = new MasmTranslator().Translate(instruction);
+            //var asm = new MasmTranslator().Translate(instruction);
+            var asm = instruction.ToString();
             Console.WriteLine($"masm: {asm}");
             //SharpDisasm.Disassembler.Translator = new SharpDisasm.Translators.IntelTranslator();
             File.WriteAllText(fullPath, template.Replace("$REPLACEME", asm));
@@ -170,7 +171,8 @@ next:
             string tempName = $"scrap{num}.asm";
             string fullPath = Path.Combine(tempPath, tempName);
             
-            var asm = new NasmTranslator().Translate(instruction);
+            //var asm = new NasmTranslator().Translate(instruction);
+            var asm = instruction.ToString();
             //Console.WriteLine($"nasm: {asm}, optype: {instruction.Operands.First().Type}");
             
             File.WriteAllText(fullPath, template.Replace("$REPLACEME", asm));
@@ -393,12 +395,15 @@ next:
                    !asm.Contains("fcomp5") &&
                    !asm.Contains("repne j") &&
                    !asm.Contains("repne ret") &&
+                   !asm.Contains("minsd") &&
                    // unsupported operands
                    !asm.Contains("pinsrw") &&
                    !asm.Contains("vmptrld") &&
                    !asm.Contains("vmptrst") &&
+                   !asm.Contains("vmaskmovpd") &&
                    !asm.Contains("vpinsrw") &&
                    !asm.Contains("divsd") &&
+                   !asm.Contains("pmulhrw") &&
                    !(instruction.Mnemonic == ud_mnemonic_code.UD_Inop && instruction.Operands.Length > 0) &&
                    !(instruction.Mnemonic == ud_mnemonic_code.UD_Ipause && instruction.Operands.Length > 0);
         }

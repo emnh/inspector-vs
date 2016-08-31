@@ -49,6 +49,10 @@ namespace Program {
             string ripRegister = freeRegister.ToString().ToLower();
             string targetRegister64 = "rax";
             string targetRegister = "rax";
+            if (asmOperands.Contains("far word")) {
+                asmOperands = asmOperands.Replace("far word", "word");
+                targetRegister = AssemblyUtil.Get16BitRegisterFrom64BitRegister(targetRegister.ToUpper()).ToLower();
+            }
             if (asmOperands.Contains("far dword")) {
                 asmOperands = asmOperands.Replace("far dword", "dword");
                 targetRegister = AssemblyUtil.Get32BitRegisterFrom64BitRegister(targetRegister.ToUpper()).ToLower();

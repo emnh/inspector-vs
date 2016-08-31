@@ -210,7 +210,7 @@ namespace Program {
             var nextOffset1 = 0;
             using (var sw = new StreamWriter(Specifics.PatchAsmDumpFileName)) {
                 foreach (var s in codeSiteCodeJit.Select((b1) => $"b: 0x{b1:X2}")) {
-                    var asm1S = "";
+                    string asm1S;
                     try {
                         var asm1 = AssemblyUtil.Disassemble(codeSiteCodeJit.Skip(i).Take(AssemblyUtil.MaxInstructionBytes).ToArray());
                         asm1S = i == nextOffset1 ? asm1.ToString() : "";
