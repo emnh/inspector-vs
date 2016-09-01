@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
@@ -105,7 +106,6 @@ namespace Program {
             return totalSize2;
         }
 
-        [HandleProcessCorruptedStateExceptions]
         private static void DumpAssembly(byte[] traceMemory) {
             BigInteger oldProgress = 0;
             var subRange = new byte[AssemblyUtil.MaxInstructionBytes];
@@ -171,25 +171,35 @@ namespace Program {
                                 sw2.WriteLine($"{i:X}: {asm}");
 
                                 if (maybeJump.Present) {
-                                    asmBranchesNasm.WriteLine($"db 0x{(byte) maybeJump.RipEquals:X2}");
+                                    var flags = (byte) (maybeJump.RipEquals |
+                                                         BranchRewriteSimple.RegisterMaskAndFlags.IsBranch);
+                                    asmBranchesNasm.WriteLine($"db 0x{flags:X2}");
                                     asmBranchesNasm.WriteLine($"{maybeJump.AddBranchOfSameType(".setrip")}");
+                                    asmBranchesNasm.WriteLine("clc"); // clear carry flag if we didn't jump == modify rip/rax
                                     asmBranchesNasm.WriteLine("jmp .next");
                                     asmBranchesNasm.WriteLine(".setrip:");
                                     foreach (var s in maybeJump.AddInstrToGetBranchTarget()) {
                                         asmBranchesNasm.WriteLine(s);
                                     }
+                                    asmBranchesNasm.WriteLine("stc"); // set carry flag if we didn't jump == modify rip/rax
                                 } else {
-                                    // flags
-                                    var freeRegister = BranchRewriteSimple.FindFreeRegister(asm);
-                                    string ripRegister = freeRegister.ToString().ToLower();
-                                    asm = asm.Replace("rip", ripRegister);
-                                    asmBranchesNasm.WriteLine($"db 0x{(byte) freeRegister:X2}");
-                                    asmBranchesNasm.WriteLine(asm);
+                                    if (asm.Contains("rip")) {
+                                        var freeRegister = BranchRewriteSimple.FindFreeRegister(asm);
+                                        string ripRegister = freeRegister.ToString().ToLower();
+                                        asm = asm.Replace("rip", ripRegister);
+                                        // flags
+                                        asmBranchesNasm.WriteLine($"db 0x{(byte) freeRegister:X2}");
+                                        asmBranchesNasm.WriteLine(asm);
+                                    } else {
+                                        // flags
+                                        asmBranchesNasm.WriteLine("db 0x0");
+                                        asmBranchesNasm.WriteLine("db " + AssemblyUtil.BytesToHexZeroX(instruction.Bytes, ","));
+                                    }
                                 }
                             } else {
                                 asmBranchesNasm.WriteLine("; failed to decode");
                                 // flags
-                                asmBranchesNasm.WriteLine("db 0xFF");
+                                asmBranchesNasm.WriteLine($"db 0x{(byte) BranchRewriteSimple.RegisterMaskAndFlags.NotDecoded:X2}");
                                 asmBranchesNasm.WriteLine("db " + AssemblyUtil.BytesToHexZeroX(subRange, ","));
                             }
                             asmBranchesNasm.WriteLine(".next:");

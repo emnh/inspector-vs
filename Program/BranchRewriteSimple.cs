@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using SharpDisasm;
 using SharpDisasm.Udis86;
@@ -6,34 +7,37 @@ using SharpDisasm.Udis86;
 namespace Program {
     class BranchRewriteSimple {
 
-        public enum RegisterMask : byte
+        [Flags]
+        public enum RegisterMaskAndFlags : byte
         {
-            Eax = 1 << 1,
-            Ebx = 1 << 2,
-            Ecx = 1 << 3,
-            Edx = 1 << 4
+            Eax = 1 << 0,
+            Ebx = 1 << 1,
+            Ecx = 1 << 2,
+            Edx = 1 << 3,
+            IsBranch = 1 << 6,
+            NotDecoded = 1 << 7
         }
 
         public class MaybeJumpSimple {
             public bool Present;
             public BranchInstruction Branch;
-            public RegisterMask RipEquals;
+            public RegisterMaskAndFlags RipEquals;
             public Func<string, string> AddBranchOfSameType;
             public Func<string[]> AddInstrToGetBranchTarget;
         }
 
-        public static RegisterMask FindFreeRegister(string asm) {
+        public static RegisterMaskAndFlags FindFreeRegister(string asm) {
             if (!asm.Contains("eax")) {
-                return RegisterMask.Eax;
+                return RegisterMaskAndFlags.Eax;
             }
             if (!asm.Contains("ebx")) {
-                return RegisterMask.Ebx;
+                return RegisterMaskAndFlags.Ebx;
             }
             if (!asm.Contains("ecx")) {
-                return RegisterMask.Ecx;
+                return RegisterMaskAndFlags.Ecx;
             }
             if (!asm.Contains("edx")) {
-                return RegisterMask.Edx;
+                return RegisterMaskAndFlags.Edx;
             }
             throw new Exception("could not find free register");
         }
@@ -51,15 +55,47 @@ namespace Program {
             string targetRegister = "rax";
             if (asmOperands.Contains("far word")) {
                 asmOperands = asmOperands.Replace("far word", "word");
-                targetRegister = AssemblyUtil.Get16BitRegisterFrom64BitRegister(targetRegister.ToUpper()).ToLower();
-            }
-            if (asmOperands.Contains("far dword")) {
+                targetRegister = AssemblyUtil.Get16BitRegisterFrom64BitRegister(targetRegister64.ToUpper()).ToLower();
+            } else if (asmOperands.Contains("far dword")) {
                 asmOperands = asmOperands.Replace("far dword", "dword");
-                targetRegister = AssemblyUtil.Get32BitRegisterFrom64BitRegister(targetRegister.ToUpper()).ToLower();
-            }
-            if (asmOperands.Contains("far qword")) {
+                targetRegister = AssemblyUtil.Get32BitRegisterFrom64BitRegister(targetRegister64.ToUpper()).ToLower();
+            } else if (asmOperands.Contains("far qword")) {
                 asmOperands = asmOperands.Replace("far qword", "qword");
+            } else if (instruction.Operands.Length > 0) {
+                // maybe invalid instruction on 64-bit, so won't be called, but wth
+                var opr = instruction.Operands[0];
+
+                switch (instruction.Operands[0].Size) {
+                    case 8:
+                        targetRegister = AssemblyUtil.Get8BitLowerRegisterFrom64BitRegister(targetRegister64.ToUpper()).ToLower();
+                        break;
+                    case 16:
+                        targetRegister = AssemblyUtil.Get16BitRegisterFrom64BitRegister(targetRegister64.ToUpper()).ToLower();
+                        break;
+                    case 32:
+                        targetRegister = AssemblyUtil.Get32BitRegisterFrom64BitRegister(targetRegister64.ToUpper()).ToLower();
+                        break;
+                    case 64:
+                        break;
+                }
+
+                if (opr.Type == ud_type.UD_OP_JIMM) {
+                    switch (opr.Size) {
+                        case 8:
+                            asmOperands = ((sbyte) (instruction.PC + (ulong)opr.LvalSByte)).ToString();
+                            break;
+                        case 16:
+                            asmOperands = ((int) (instruction.PC + (ulong)opr.LvalSWord)).ToString();
+                            break;
+                        case 32:
+                            asmOperands = ((long) (instruction.PC + (ulong)opr.LvalSDWord)).ToString();
+                            break;
+                        default:
+                            throw new Exception("invalid relative offset size.");
+                    }
+                }
             }
+            
             asmOperands = asmOperands.Replace("rip", ripRegister);
 
             Func<bool> getRelative = () => instruction.Operands.Length > 0 && instruction.Operands[0].Type == ud_type.UD_OP_JIMM;

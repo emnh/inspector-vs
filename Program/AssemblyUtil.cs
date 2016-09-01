@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 using AsmJit.AssemblerContext;
 using diStorm;
 using SharpDisasm;
-using SharpDisasm.Translators;
 using SharpDisasm.Udis86;
 
 namespace Program {
@@ -30,15 +29,17 @@ namespace Program {
         public const int MaxInstructions = 1;
         public const byte Nop = 0x90;
         public const byte Int3 = 0xCC;
-        public static byte[] InfiniteLoop = new byte[] { 0xEB, 0xFE };
+        public static byte[] InfiniteLoop = { 0xEB, 0xFE };
         public static Func<Win32Imports.ContextX64, string> FormatContext;
         public static Func<Win32Imports.ContextX64, Win32Imports.ContextX64, Instruction, string> FormatContextDiff;
 
-        // MaxBranchBytes is sum of size of:
-        // 2: db size, db flags
+        // MaxBranchBytes is greater than sum of size of:
+        // 1: db flags
         // 2: jnz rel8
+        // 1: clc
         // 2: jmp afterMov
         // 10: mov rax, imm64
+        // 1: stc
         // afterMov:
         public const int MaxBranchBytes = 20;
 

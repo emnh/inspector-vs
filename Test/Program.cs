@@ -28,6 +28,7 @@ namespace Test {
             //c.Sub(c.Rcx, 1);
             c.Jae(0);
             c.Call((uint) 0x100);
+            c.Jmp(c.Sp);
             c.Jmp(c.Rax);
             c.Jmp(Memory.QWord(c.Rax));
             c.Fadd(c.Fp0, c.Fp1);
@@ -45,14 +46,18 @@ namespace Test {
             byte[] bs = AssemblyUtil.GetAsmJitBytes(c);
             
             //bs = new byte[] { 0xEB, 0xFF - 0xA };
+            bs = new byte[] { 0x66, 0xFF, 0xE4 };
             Console.WriteLine($"bytes: {AssemblyUtil.BytesToHex(bs)}");
 
             var asms = AssemblyUtil.DisassembleMany(bs, 100);
 
             foreach (var asm in asms) {
                 Console.WriteLine($"asm: {asm}, bytes: {AssemblyUtil.BytesToHex(asm.Bytes)}");
-                var asm2 = AssemblyUtil.ReassembleNasm64(asm);
-                Console.WriteLine($"asm: {asm}, asm2: {asm2}");
+                if (asm.Operands.Length > 0) {
+                    Console.WriteLine($"asm: {asm} operand size: {asm.Operands[0].Size}");
+                }
+                //var asm2 = AssemblyUtil.ReassembleNasm64(asm);
+                //Console.WriteLine($"asm: {asm}, asm2: {asm2}");
                 // PrintAsmDetails(asm);
             }
 
